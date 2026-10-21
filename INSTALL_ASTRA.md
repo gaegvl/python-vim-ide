@@ -1,77 +1,53 @@
-# Быстрая установка на Astra Linux SE / CE
+# Установка на Astra Linux (офлайн)
 
-## Вариант A — только Vim + Python (уже есть)
+## Рекомендуемый путь
 
 ```bash
-mkdir -p ~/opt
-cp -a python-vim-ide ~/opt/
-echo 'source ~/opt/python-vim-ide/vimrc' >> ~/.vimrc
+# 1. Доставьте каталог на сервер (git / scp / флешка)
+git clone https://github.com/gaegvl/python-vim-ide.git ~/opt/python-vim-ide
+
+# 2. Одна команда
+bash ~/opt/python-vim-ide/bin/install.sh
+
+# 3. Проверка
 vim -c 'PyIdeHealth' -c 'qa'
+vim ~/opt/python-vim-ide/examples/demo.py
 ```
 
-Откройте любой `.py` и нажмите `<Space>e`, `<Space>rr`.
+В Vim нажмите `<Space>?`.
 
-## Вариант B — «почти IDE» (jedi + ruff)
+## Если нет git на сервере
 
-На хосте **с интернетом** (или зеркалом):
+На машине с сетью:
 
 ```bash
-mkdir -p pyide-offline/{wheels,debs}
-pip download jedi parso ruff pytest -d pyide-offline/wheels
-# по возможности:
-# apt-get download universal-ctags ripgrep git
-# mv *.deb pyide-offline/debs/
-tar czf pyide-offline.tar.gz pyide-offline python-vim-ide
+git clone https://github.com/gaegvl/python-vim-ide.git
+tar czf python-vim-ide.tar.gz python-vim-ide
 ```
 
 На Astra:
 
 ```bash
-tar xzf pyide-offline.tar.gz
-cp -a python-vim-ide ~/opt/
-echo 'source ~/opt/python-vim-ide/vimrc' >> ~/.vimrc
-
-python3 -m pip install --user --no-index --find-links=./pyide-offline/wheels jedi ruff pytest
-# sudo dpkg -i pyide-offline/debs/*.deb   # если скачали
-
-vim -c 'PyIdeHealth' -c 'qa'
+tar xzf python-vim-ide.tar.gz -C ~/opt
+bash ~/opt/python-vim-ide/bin/install.sh
 ```
 
-## Вариант C — системный Python без pip user
+## Если ruff/debugpy не встали
+
+Бинарные wheels зависят от архитектуры и версии Python. На хосте с интернетом:
 
 ```bash
-sudo python3 -m pip install --no-index --find-links=./pyide-offline/wheels jedi ruff
+./bin/fetch-wheels.sh 3.9    # под вашу версию: python3 --version
 ```
 
-или в venv проекта:
+Скопируйте `vendor/wheels` на Astra и снова `./bin/install-tools.sh`.
+
+Минимум для «умной» IDE: **jedi** (pure Python, почти всегда встаёт).
+
+## Системные пакеты (по возможности с зеркала Astra)
 
 ```bash
-cd ~/myproject
-python3 -m venv .venv
-.venv/bin/pip install --no-index --find-links=~/pyide-offline/wheels jedi ruff pytest
+sudo apt-get install vim-nox git universal-ctags ripgrep
 ```
 
-## Проверка после установки
-
-| Проверка | Ожидание |
-|---|---|
-| `:PyIdeHealth` | Vim/Python OK, jedi OK |
-| `<Space>e` | дерево слева |
-| в `def`<Tab> | развернулся шаблон |
-| `gd` на имени функции | прыжок (нужен jedi) |
-| `<Space>rl` | lint OK / список ошибок |
-| `<Space>rr` | терминал с выводом скрипта |
-
-## Частые проблемы Astra
-
-**`termguicolors` ломает цвета в старом TERM**  
-В `~/.vimrc` после source: `set notermguicolors`
-
-**Нет `+terminal` / `+job`**  
-Поставьте пакет `vim-nox` / `vim-gtk3` с Huge features (у вас должен быть Huge — проверьте `vim --version | grep -E 'terminal|job|python3'`).
-
-**Нет интернета у pip**  
-Только `--no-index --find-links=...` с заранее скачанными wheel.
-
-**Кодировка cp1251**  
-Уже включено `fileencodings=utf-8,cp1251,...` в vimrc.
+`vim-nox` / Huge Vim: нужны `+python3`, `+terminal`, `+job` (`vim --version`).

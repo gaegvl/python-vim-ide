@@ -9,3 +9,6 @@ __pycache__/
 venv/
 tags
 .local/
+.pyide/
+.pytest_cache/
+*.egg-info/

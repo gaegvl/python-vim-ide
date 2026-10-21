@@ -99,6 +99,10 @@ nnoremap <silent> <leader>rf :PyIdeFormat<CR>
 nnoremap <silent> <leader>ri :PyIdeOrganizeImports<CR>
 nnoremap <silent> <leader>rd :PyIdeDebug<CR>
 nnoremap <silent> <leader>rv :PyIdeRepl<CR>
+nnoremap <silent> <leader>o  :PyIdeOutline<CR>
+nnoremap <silent> <leader>td :PyIdeTodo<CR>
+nnoremap <silent> <leader>b  :PyIdeBreakpoint<CR>
+nnoremap <silent> <leader>bc :PyIdeBreakClear<CR>
 
 " Навигация по коду
 nnoremap <silent> gd :PyIdeGotoDef<CR>
@@ -135,8 +139,11 @@ nnoremap <silent> <leader>gb :PyIdeGitBlame<CR>
 " Терминал
 nnoremap <silent> <leader>tt :PyIdeTerminal<CR>
 
-" Tags
+" Tags / сессия / справка
 nnoremap <silent> <leader>ct :PyIdeCtags<CR>
+nnoremap <silent> <leader>ss :PyIdeSessionSave<CR>
+nnoremap <silent> <leader>sl :PyIdeSessionLoad<CR>
+nnoremap <silent> <leader>?  :PyIdeHelp<CR>
 
 " --- Автокоманды ------------------------------------------------------------
 augroup PyIdeGlobal
@@ -144,6 +151,7 @@ augroup PyIdeGlobal
   autocmd BufWritePre *.py call pyide#format#on_save()
   autocmd BufWritePost *.py call pyide#lint#run_async()
   autocmd BufEnter *.py call pyide#venv#auto()
+  autocmd VimEnter * call pyide#venv#auto()
   autocmd VimEnter * call pyide#statusline#setup()
 augroup END
 

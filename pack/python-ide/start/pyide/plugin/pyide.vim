@@ -33,6 +33,13 @@ command! -nargs=0 PyIdeGitStatus    call pyide#git#status()
 command! -nargs=0 PyIdeGitBlame     call pyide#git#blame()
 command! -nargs=0 PyIdeCtags        call pyide#nav#ctags()
 command! -nargs=0 PyIdeHealth       call pyide#health#check()
+command! -nargs=0 PyIdeOutline      call pyide#outline#toggle()
+command! -nargs=0 PyIdeTodo         call pyide#todo#find()
+command! -nargs=0 PyIdeBreakpoint   call pyide#breakpoint#toggle()
+command! -nargs=0 PyIdeBreakClear   call pyide#breakpoint#clear()
+command! -nargs=0 PyIdeHelp         call pyide#whichkey#show()
+command! -nargs=0 PyIdeSessionSave  call pyide#session#save()
+command! -nargs=0 PyIdeSessionLoad  call pyide#session#load()
 
 " Знаки для диагностики и git
 call sign_define('PyIdeError',   {'text': 'E>', 'texthl': 'ErrorMsg'})

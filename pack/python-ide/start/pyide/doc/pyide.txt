@@ -46,6 +46,13 @@ COMMANDS                                                     *pyide-commands*
 :PyIdeCtags               Собрать tags
 :PyIdeGitStatus           git status
 :PyIdeGitBlame            blame текущей строки
+:PyIdeOutline             Outline символов
+:PyIdeTodo                TODO/FIXME
+:PyIdeBreakpoint          Toggle breakpoint
+:PyIdeBreakClear          Clear breakpoints
+:PyIdeHelp                Шпаргалка клавиш
+:PyIdeSessionSave         Сохранить сессию
+:PyIdeSessionLoad         Загрузить сессию
 
 ==============================================================================
 MAPPINGS                                                     *pyide-mappings*
