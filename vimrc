@@ -148,7 +148,7 @@ nnoremap <silent> <leader>?  :PyIdeHelp<CR>
 " --- Автокоманды ------------------------------------------------------------
 augroup PyIdeGlobal
   autocmd!
-  autocmd BufWritePre *.py call pyide#format#on_save()
+  autocmd BufWritePre *.py,*.json call pyide#format#on_save()
   autocmd BufWritePost *.py call pyide#lint#run_async()
   autocmd BufEnter *.py call pyide#venv#auto()
   autocmd VimEnter * call pyide#venv#auto()

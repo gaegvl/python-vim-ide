@@ -1,0 +1,11 @@
+{
+  "name": "PyIDE",
+  "features": [
+    "python",
+    "json"
+  ],
+  "nested": {
+    "ok": true,
+    "n": 1
+  }
+}

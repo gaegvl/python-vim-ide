@@ -36,7 +36,7 @@ COMMANDS                                                     *pyide-commands*
 :PyIdeRun                 Запуск текущего .py
 :PyIdeTest                pytest / unittest
 :PyIdeLint                Диагностика
-:PyIdeFormat              Форматирование
+:PyIdeFormat              Форматирование (Python / JSON)
 :PyIdeOrganizeImports     isort / ruff I
 :PyIdeDebug               pdb
 :PyIdeRepl                Python REPL

@@ -10,7 +10,7 @@ function! pyide#whichkey#show() abort
         \ '',
         \ 'Код Python',
         \ '  rr    запуск (F5)            rt    тесты (F6)',
-        \ '  rl    lint (F7)              rf    format (F8)',
+        \ '  rl    lint (F7)              rf    format py/json (F8)',
         \ '  rd    debug pdb (F9)         rv    REPL',
         \ '  ri    organize imports       o     outline символов',
         \ '  td    TODO/FIXME             b     toggle breakpoint',
