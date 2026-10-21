@@ -1,0 +1,77 @@
+*pyide.txt*  Offline Python IDE for Vim 9.1+
+
+==============================================================================
+CONTENTS                                                     *pyide-contents*
+
+1. Intro ................ |pyide-intro|
+2. Install .............. |pyide-install|
+3. Commands ............. |pyide-commands|
+4. Mappings ............. |pyide-mappings|
+5. Snippets ............. |pyide-snippets|
+6. Optional tools ....... |pyide-tools|
+
+==============================================================================
+INTRO                                                           *pyide-intro*
+
+PyIDE — набор чистых Vimscript-плагинов + Python-мост к Jedi.
+Работает без интернета из редактора. Всё копируется каталогом на сервер.
+
+==============================================================================
+INSTALL                                                       *pyide-install*
+
+>
+  source /path/to/python-vim-ide/vimrc
+<
+
+Или в ~/.vimrc одна строка source. См. README.md пакета.
+
+==============================================================================
+COMMANDS                                                     *pyide-commands*
+
+:PyIdeHealth              Проверка окружения
+:PyIdeExplorerToggle      Дерево файлов
+:PyIdeFindFile            Fuzzy-поиск файлов
+:PyIdeFindBuffer          Буферы
+:PyIdeGrep [query]        Поиск по проекту
+:PyIdeRun                 Запуск текущего .py
+:PyIdeTest                pytest / unittest
+:PyIdeLint                Диагностика
+:PyIdeFormat              Форматирование
+:PyIdeOrganizeImports     isort / ruff I
+:PyIdeDebug               pdb
+:PyIdeRepl                Python REPL
+:PyIdeGotoDef             gd
+:PyIdeReferences          gr
+:PyIdeDoc                 K
+:PyIdeCtags               Собрать tags
+:PyIdeGitStatus           git status
+:PyIdeGitBlame            blame текущей строки
+
+==============================================================================
+MAPPINGS                                                     *pyide-mappings*
+
+Leader = <Space>
+
+  <Space>e    explorer          <Space>ff   find file
+  <Space>fb   buffers           <Space>fg   grep
+  <Space>rr   run               <Space>rt   test
+  <Space>rl   lint              <Space>rf   format
+  <Space>rd   debug             <Space>rv   repl
+  gd / gr / K / ]d / [d         навигация и диагностика
+  <Space>/    comment toggle
+  F5..F9      run/test/lint/format/debug
+
+==============================================================================
+SNIPPETS                                                     *pyide-snippets*
+
+В insert-режиме наберите триггер и Tab:
+  def class if for while try with main pdb log dataclass prop test from imp doc
+
+==============================================================================
+TOOLS                                                           *pyide-tools*
+
+Обязательно: python3
+Рекомендуется: jedi (навигация/дополнение)
+Опционально: ruff|black|flake8, pytest, ctags, git, rg
+
+ vim:tw=78:ts=8:ft=help:norl:
