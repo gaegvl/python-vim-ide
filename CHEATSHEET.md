@@ -13,7 +13,7 @@
 | `SPC rr` / F5 | run |
 | `SPC rt` / F6 | test |
 | `SPC rl` / F7 | lint |
-| `SPC rf` / F8 | format (Python / JSON) |
+| `SPC rf` / F8 | format (Python / JSON); также авто при `:w` |
 | `SPC rd` / F9 | debug (pdb) |
 | `SPC b` | toggle breakpoint |
 | `SPC bc` | clear breakpoints |
