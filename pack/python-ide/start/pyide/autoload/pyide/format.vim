@@ -1,5 +1,5 @@
 " Форматирование: Python (ruff/black) + JSON (jq / python json.tool)
-let g:pyide_format_on_save = get(g:, 'pyide_format_on_save', 0)
+let g:pyide_format_on_save = get(g:, 'pyide_format_on_save', 1)
 let g:pyide_json_indent = get(g:, 'pyide_json_indent', 2)
 
 function! pyide#format#on_save() abort

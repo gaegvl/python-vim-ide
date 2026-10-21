@@ -145,6 +145,9 @@ nnoremap <silent> <leader>ss :PyIdeSessionSave<CR>
 nnoremap <silent> <leader>sl :PyIdeSessionLoad<CR>
 nnoremap <silent> <leader>?  :PyIdeHelp<CR>
 
+" Автоформат при сохранении (Python + JSON). Отключить: let g:pyide_format_on_save = 0
+let g:pyide_format_on_save = get(g:, 'pyide_format_on_save', 1)
+
 " --- Автокоманды ------------------------------------------------------------
 augroup PyIdeGlobal
   autocmd!

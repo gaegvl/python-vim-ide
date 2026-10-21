@@ -68,7 +68,9 @@ Wheels в `vendor/` собраны под **linux x86_64 / Python 3.12** (час
 В `~/.vimrc` после `source`:
 
 ```vim
-let g:pyide_format_on_save = 1
+" Автоформат .py и .json при :w включён по умолчанию
+let g:pyide_format_on_save = 0   " отключить
+let g:pyide_json_indent = 2
 let g:pyide_python_forced = '/path/to/python'   " зафиксировать интерпретатор
 let g:pyide_explorer_width = 36
 let g:pyide_show_banner = 0
