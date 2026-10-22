@@ -6,6 +6,16 @@
 
 if &compatible | set nocompatible | endif
 
+" Leader = Space — ОБЯЗАТЕЛЬНО до любых map; Space сам по себе ничего не делает
+let mapleader = ' '
+let maplocalleader = '\'
+nnoremap <Space> <Nop>
+vnoremap <Space> <Nop>
+" Чуть больше времени на вторую клавишу после Space (было 500)
+set timeout ttimeout
+set timeoutlen=1200
+set ttimeoutlen=50
+
 " Корень пакета (каталог, где лежит этот vimrc)
 let g:pyide_root = expand('<sfile>:p:h')
 let &runtimepath = g:pyide_root . ',' . &runtimepath
@@ -23,7 +33,6 @@ set mouse=a
 set clipboard=unnamedplus
 set hidden
 set updatetime=300
-set timeoutlen=500
 set splitbelow splitright
 set wildmenu wildmode=longest:full,full
 set wildignore+=*/.git/*,*/__pycache__/*,*/.venv/*,*/venv/*,*.pyc,*.pyo
@@ -77,73 +86,73 @@ function! PyIdeDetectPython() abort
 endfunction
 let g:pyide_python = PyIdeDetectPython()
 
-" --- Горячие клавиши IDE (leader = пробел) ----------------------------------
-let mapleader = "\<Space>"
-let maplocalleader = "\\"
+" --- Горячие клавиши IDE (Space = leader) -----------------------------------
+" Явно <Space>..., не только <leader> — надёжнее на разных Vim/Astra
 
 " Файлы / навигация
-nnoremap <silent> <leader>e  :PyIdeExplorerToggle<CR>
-nnoremap <silent> <leader>ff :PyIdeFindFile<CR>
-nnoremap <silent> <leader>fb :PyIdeFindBuffer<CR>
-nnoremap <silent> <leader>fg :PyIdeGrep<CR>
-nnoremap <silent> <leader>fr :PyIdeRecent<CR>
-nnoremap <silent> <leader>w  :w<CR>
-nnoremap <silent> <leader>q  :q<CR>
-nnoremap <silent> <leader>x  :bd<CR>
+nnoremap <silent> <Space>e  :PyIdeExplorerToggle<CR>
+nnoremap <silent> <Space>ff :PyIdeFindFile<CR>
+nnoremap <silent> <Space>fb :PyIdeFindBuffer<CR>
+nnoremap <silent> <Space>fg :PyIdeGrep<CR>
+nnoremap <silent> <Space>fr :PyIdeRecent<CR>
+nnoremap <silent> <Space>w  :w<CR>
+nnoremap <silent> <Space>q  :q<CR>
+nnoremap <silent> <Space>x  :bd<CR>
 
 " Python
-nnoremap <silent> <leader>rr :PyIdeRun<CR>
-nnoremap <silent> <leader>rt :PyIdeTest<CR>
-nnoremap <silent> <leader>rl :PyIdeLint<CR>
-nnoremap <silent> <leader>rf :PyIdeFormat<CR>
-nnoremap <silent> <leader>ri :PyIdeOrganizeImports<CR>
-nnoremap <silent> <leader>rd :PyIdeDebug<CR>
-nnoremap <silent> <leader>rv :PyIdeRepl<CR>
-nnoremap <silent> <leader>o  :PyIdeOutline<CR>
-nnoremap <silent> <leader>td :PyIdeTodo<CR>
-nnoremap <silent> <leader>b  :PyIdeBreakpoint<CR>
-nnoremap <silent> <leader>bc :PyIdeBreakClear<CR>
+nnoremap <silent> <Space>rr :PyIdeRun<CR>
+nnoremap <silent> <Space>rt :PyIdeTest<CR>
+nnoremap <silent> <Space>rl :PyIdeLint<CR>
+nnoremap <silent> <Space>rf :PyIdeFormat<CR>
+nnoremap <silent> <Space>ri :PyIdeOrganizeImports<CR>
+nnoremap <silent> <Space>rd :PyIdeDebug<CR>
+nnoremap <silent> <Space>rv :PyIdeRepl<CR>
+nnoremap <silent> <Space>o  :PyIdeOutline<CR>
+nnoremap <silent> <Space>td :PyIdeTodo<CR>
+nnoremap <silent> <Space>b  :PyIdeBreakpoint<CR>
+nnoremap <silent> <Space>bc :PyIdeBreakClear<CR>
 
 " Навигация по коду
 nnoremap <silent> gd :PyIdeGotoDef<CR>
 nnoremap <silent> gD :PyIdeGotoAssign<CR>
 nnoremap <silent> gr :PyIdeReferences<CR>
 nnoremap <silent> K  :PyIdeDoc<CR>
-nnoremap <silent> <leader>rn :PyIdeRename<CR>
+nnoremap <silent> <Space>rn :PyIdeRename<CR>
 nnoremap <silent> ]d :PyIdeDiagNext<CR>
 nnoremap <silent> [d :PyIdeDiagPrev<CR>
-nnoremap <silent> <leader>ca :PyIdeCodeAction<CR>
+nnoremap <silent> <Space>ca :PyIdeCodeAction<CR>
 
 " Окна / вкладки
 nnoremap <C-h> <C-w>h
 nnoremap <C-j> <C-w>j
 nnoremap <C-k> <C-w>k
 nnoremap <C-l> <C-w>l
-nnoremap <silent> <leader>tn :tabnew<CR>
-nnoremap <silent> <leader>tc :tabclose<CR>
-nnoremap <silent> <leader>=  <C-w>=
+nnoremap <silent> <Space>tn :tabnew<CR>
+nnoremap <silent> <Space>tc :tabclose<CR>
+nnoremap <silent> <Space>=  <C-w>=
 
 " Комментарии / сниппеты
-nnoremap <silent> <leader>/ :PyIdeToggleComment<CR>
-vnoremap <silent> <leader>/ :PyIdeToggleComment<CR>
+nnoremap <silent> <Space>/ :PyIdeToggleComment<CR>
+vnoremap <silent> <Space>/ :PyIdeToggleComment<CR>
 inoremap <silent> <Tab> <C-r>=pyide#snippet#expand_or_tab()<CR>
 inoremap <silent> <S-Tab> <C-r>=pyide#snippet#jump_back()<CR>
 
 " Поиск
-nnoremap <silent> <leader>h :nohlsearch<CR>
+nnoremap <silent> <Space>h :nohlsearch<CR>
 
 " Git
-nnoremap <silent> <leader>gs :PyIdeGitStatus<CR>
-nnoremap <silent> <leader>gb :PyIdeGitBlame<CR>
+nnoremap <silent> <Space>gs :PyIdeGitStatus<CR>
+nnoremap <silent> <Space>gb :PyIdeGitBlame<CR>
 
 " Терминал
-nnoremap <silent> <leader>tt :PyIdeTerminal<CR>
+nnoremap <silent> <Space>tt :PyIdeTerminal<CR>
 
-" Tags / сессия / справка
-nnoremap <silent> <leader>ct :PyIdeCtags<CR>
-nnoremap <silent> <leader>ss :PyIdeSessionSave<CR>
-nnoremap <silent> <leader>sl :PyIdeSessionLoad<CR>
-nnoremap <silent> <leader>?  :PyIdeHelp<CR>
+" Tags / сессия / справка (F1 тоже — если Space? не ловится терминалом)
+nnoremap <silent> <Space>ct :PyIdeCtags<CR>
+nnoremap <silent> <Space>ss :PyIdeSessionSave<CR>
+nnoremap <silent> <Space>sl :PyIdeSessionLoad<CR>
+nnoremap <silent> <Space>?  :PyIdeHelp<CR>
+nnoremap <silent> <F1>      :PyIdeHelp<CR>
 
 " Автоформат при сохранении (Python + JSON). Отключить: let g:pyide_format_on_save = 0
 let g:pyide_format_on_save = get(g:, 'pyide_format_on_save', 1)

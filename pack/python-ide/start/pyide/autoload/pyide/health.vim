@@ -24,10 +24,15 @@ function! pyide#health#check() abort
     echo printf('  %-12s %s', l:name, l:ok ? 'OK' : 'нет')
   endfor
   echo ''
+  echo '--- Клавиши ---'
+  echo '  mapleader=' . strtrans(get(g:, 'mapleader', '\\'))
+  echo '  Space+e map: ' . (empty(maparg('<Space>e', 'n')) ? 'НЕТ (vimrc не загружен?)' : 'OK')
+  echo '  :PyIdeHelp   — шпаргалка; также F1'
+  echo ''
   if !s:py_mod('jedi')
-    echo 'Установите tools:  bash ' . get(g:, 'pyide_root', '.') . '/bin/install-tools.sh'
+    echo 'Установите tools:  python3 ' . get(g:, 'pyide_root', '.') . '/bin/install_tools.py'
   else
-    echo 'IDE ready. <Space>? — шпаргалка клавиш'
+    echo 'IDE ready. F1 или :PyIdeHelp — шпаргалка'
   endif
 endfunction
 
