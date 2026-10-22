@@ -146,7 +146,9 @@ if [[ "$CHUNK_MB" -gt 0 ]]; then
     n=$((n + 1))
   done
   echo "parts=$n" >> "$OUT/MANIFEST.txt"
-  echo "Создано частей: $n (цельный pyide-${KIND}.txt тоже оставлен)"
+  # цельный файл > лимита почты (часто 25 МБ) — не отправлять
+  rm -f "$B64"
+  echo "Создано частей: $n (цельный файл удалён — шлите только part*.txt)"
 fi
 
 echo ""
@@ -154,4 +156,9 @@ echo "Готово → $OUT"
 ls -lh "$OUT"
 echo ""
 echo "Отправьте ТОЛЬКО *.txt (без #! в первой строке)."
-echo "На Astra: python3 unpack-pyide.txt pyide-${KIND}.txt"
+if [[ "$CHUNK_MB" -gt 0 ]]; then
+  echo "На Astra: python3 unpack-pyide.txt pyide-${KIND}-part*.txt"
+else
+  echo "На Astra: python3 unpack-pyide.txt pyide-${KIND}.txt"
+  echo "Если письмо > 25 МБ:  ./bin/pack-for-email.sh --chunk 20"
+fi
