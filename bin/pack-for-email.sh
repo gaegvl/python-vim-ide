@@ -42,21 +42,24 @@ if [[ "$FULL" -eq 1 ]]; then
 elif [[ "$MINIMAL" -eq 1 ]]; then
   echo "Упаковываю минимум: jedi + parso (дополнение/навигация)..."
   mkdir -p "$STAGE/vendor/wheels"
-  copied=0
-  for f in "$ROOT"/vendor/wheels/jedi-*.whl "$ROOT"/vendor/wheels/parso-*.whl; do
-    [[ -f "$f" ]] || continue
-    cp -a "$f" "$STAGE/vendor/wheels/"
-    copied=1
-  done
-  if [[ "$copied" -eq 0 ]]; then
+  shopt -s nullglob
+  local_files=("$ROOT"/vendor/wheels/jedi-*.whl "$ROOT"/vendor/wheels/parso-*.whl)
+  shopt -u nullglob
+  if [[ ${#local_files[@]} -eq 0 ]]; then
     echo "Нет jedi/parso wheels. Сначала: ./bin/fetch-wheels.sh"
     exit 1
   fi
+  for f in "${local_files[@]}"; do
+    cp -a "$f" "$STAGE/vendor/wheels/"
+  done
   tar -C "$STAGE" -czf "$STAGE/payload.tgz" vendor/wheels
   KIND=jedi
 else
   echo "Упаковываю vendor/wheels..."
-  if ! ls "$ROOT/vendor/wheels"/*.whl >/dev/null 2>&1; then
+  shopt -s nullglob
+  all_wheels=("$ROOT"/vendor/wheels/*.whl)
+  shopt -u nullglob
+  if [[ ${#all_wheels[@]} -eq 0 ]]; then
     echo "Нет wheels. Сначала: ./bin/fetch-wheels.sh"
     exit 1
   fi
