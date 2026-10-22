@@ -1,132 +1,74 @@
-# Как доставить wheels на Astra через почту
+# Доставка на Astra через почту
 
-Почта часто режет `.whl`, `.py`, `.sh`, архивы. Рабочая схема — **перегнать бинарники в обычный текст `.txt`**.
+## Как устроен ваш фильтр
 
-## Способ 1 (рекомендуется): base64 → `.txt`
+| Что | Поведение |
+|-----|-----------|
+| Размер файла | не режет |
+| Расширения вроде `.py`, `.whl`, `.sh`, `.exe` | **блок** |
+| Первая строка файла начинается с `#!` | **блок** (shebang) |
+| Обычный `.txt` без `#!` | проходит |
 
-### На машине, где есть репозиторий (с интернетом)
+Поэтому **нельзя** слать `script.py.txt`, если внутри всё ещё `#!/usr/bin/env python3` в первой строке — фильтр смотрит содержимое.
+
+## Что делать
+
+На машине с репозиторием:
 
 ```bash
 cd python-vim-ide
-
-# Минимум (~5–7 МБ текста): только jedi+parso — хватает для gd/дополнения
-./bin/pack-for-email.sh --minimal --chunk 2
-
-# Все wheels (ruff, pytest, …) — больше писем
-./bin/pack-for-email.sh --chunk 2
-
-# Весь IDE одним пакетом
-./bin/pack-for-email.sh --full --chunk 2
+git pull
+./bin/pack-for-email.sh --minimal          # jedi+parso, один .txt
+# или все wheels:
+./bin/pack-for-email.sh
 ```
 
-В каталоге `dist/email/` появятся файлы вида:
-- `pyide-mail-wheels.b64.txt` (или `.part000.b64.txt` …)
-- `unpack-from-email.py.txt`
-- `MANIFEST.txt`
+В `dist/email/` будут **только** файлы `*.txt`:
+- `unpack-pyide.txt` — распаковщик (первая строка — `"""..."""`, не `#!`)
+- `pyide-jedi.txt` / `pyide-wheels.txt` — данные в base64
 
-**Прикрепите к письму только `*.txt`.**
+Их и прикрепляйте к письму. Никаких `.py` / `.whl` / `.sh` даже в имени.
 
 ### На Astra
 
-1. Сохраните вложения в одну папку, например `~/mail-pyide/`
-2. Распаковщик:
-   ```bash
-   mv unpack-from-email.py.txt unpack-from-email.py
-   # только wheels:
-   python3 unpack-from-email.py pyide-mail-wheels.b64.txt
-   # или куски:
-   python3 unpack-from-email.py pyide-mail-wheels.part*.b64.txt
-   ```
-3. Если это был `--full` — получите каталог `python-vim-ide/`, затем:
-   ```bash
-   bash ~/…/python-vim-ide/bin/install.sh
-   ```
-4. Если только wheels — положите `vendor/wheels` в уже существующий клон и:
-   ```bash
-   bash bin/install-tools.sh
-   ```
-
-Проверка: `sha256` из заголовка `.b64.txt` должен совпасть (скрипт сам сверит).
-
----
-
-## Способ 2: переименовать без кодирования
-
-Иногда проходит, если фильтр смотрит только на расширение:
-
-| Было | Отправить как |
-|------|----------------|
-| `jedi-….whl` | `jedi-….whl.txt` или `jedi-….dat` / `jedi-….csv` |
-| `install.sh` | `install.sh.txt` |
-| `*.py` | `*.py.txt` |
-
-На Astra:
 ```bash
-mv jedi-0.20.1-py2.py3-none-any.whl.txt jedi-0.20.1-py2.py3-none-any.whl
+# сохранили вложения в одну папку
+python3 unpack-pyide.txt pyide-jedi.txt
+# появится vendor/wheels/
 ```
 
-У вас `.py → .py.txt` уже не проходит — тогда **только способ 1** (base64).
+Дальше скопируйте `vendor/` в каталог PyIDE и:
 
----
-
-## Способ 3: минимум без бинарных wheels
-
-Для «умного» дополнения хватает **jedi + parso** — это pure Python.
-
-На машине с сетью:
 ```bash
-pip download jedi parso -d /tmp/j
-cd /tmp/j
-unzip jedi-*.whl -d jedi_src
-unzip parso-*.whl -d parso_src
-# исходники .py можно уложить в один tar и снова pack-for-email,
-# либо каждый .py слать как .txt (долго).
+bash bin/install-tools.sh
+# или полный install.sh, если слали --full
 ```
 
-На Astra поставить в `PYTHONPATH` или:
+## Если куски всё же нужны
+
 ```bash
-pip install --user --no-index --find-links=./wheels jedi
+./bin/pack-for-email.sh --minimal --chunk 5
+python3 unpack-pyide.txt pyide-jedi-part*.txt
 ```
-(если `.whl.txt` переименовали обратно в `.whl`).
 
-`ruff` / `debugpy` — бинарные; без них IDE всё равно работает (lint через `py_compile`, format JSON/python частично).
+## Проверка, что письмо «безопасное»
 
----
+Перед отправкой:
 
-## Способ 4: вложить `.txt` внутрь `.docx` / `.odt`
-
-Некоторые фильтры пропускают Office, но режут «подозрительные» вложения.
-
-1. `pack-for-email.sh`
-2. Откройте Word/Writer → вставьте содержимое `*.b64.txt` **как текст** в документ  
-   или прикрепите `.txt` внутрь архива документа (docx = zip)
-3. На Astra скопируйте текст обратно в `.b64.txt` и `unpack-from-email.py`
-
----
-
-## Лимиты писем
-
-Если «файл слишком большой»:
 ```bash
-./bin/pack-for-email.sh --chunk 1    # куски ~1 МБ, несколько писем
+# первая строка каждого вложения — НЕ должна начинаться с #!
+head -n1 dist/email/*.txt
 ```
-На Astra скармливайте все `part*.b64.txt` одной командой — порядок склеится по номеру части.
 
----
+Ожидаемо:
+```
+PyIDE-mail-pack kind=jedi ...
+"""PyIDE unpack for email...
+PyIDE mail pack (Astra-safe)
+```
 
-## Что не стоит делать
+## Минимум vs полный набор
 
-- Пароль на zip часто **не помогает** — фильтр всё равно видит archive/exe.
-- Менять только расширение `.whl` → `.zip` — часто тоже блок.
-- Слать `.exe` / `.bin` / `.run` — точно блок.
-
----
-
-## Быстрый чеклист
-
-1. `./bin/pack-for-email.sh --chunk 2`
-2. Письма с `*.txt` на Astra
-3. `mv unpack-from-email.py.txt unpack-from-email.py`
-4. `python3 unpack-from-email.py pyide-mail-*.b64.txt`
-5. `bash bin/install-tools.sh` или `bash bin/install.sh`
-6. `vim -c 'PyIdeHealth' -c 'qa'`
+- `--minimal` — только jedi+parso (дополнение, `gd`, документация)
+- без флагов — все wheels из `vendor/` (ruff, pytest, …)
+- `--full` — весь каталог `python-vim-ide`

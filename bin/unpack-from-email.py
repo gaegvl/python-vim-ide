@@ -1,16 +1,19 @@
-#!/usr/bin/env python3
-"""Собрать payload.tgz из .b64.txt вложений почты и распаковать.
+"""PyIDE unpack for email. Run: python3 unpack-from-email.py pyide-*.txt
+
+Собрать payload из .txt вложений почты (без shebang — почтовый фильтр
+блокирует файлы, у которых первая строка начинается с #!).
 
 Примеры:
-  python3 unpack-from-email.py pyide-mail-wheels.b64.txt
-  python3 unpack-from-email.py pyide-mail-wheels.part*.b64.txt
-  python3 unpack-from-email.py --dest ~/opt pyide-mail-full.b64.txt
+  python3 unpack-pyide.txt pyide-jedi.txt
+  python3 unpack-pyide.txt pyide-jedi-part*.txt
+  python3 unpack-from-email.py --dest ~/opt pyide-full.txt
 """
 from __future__ import annotations
 
 import argparse
 import base64
 import hashlib
+import re
 import sys
 import tarfile
 from pathlib import Path
@@ -18,33 +21,46 @@ from pathlib import Path
 
 def read_b64_parts(paths: list[Path]) -> tuple[bytes, dict[str, str]]:
     meta: dict[str, str] = {}
-    chunks: list[tuple[str, str]] = []  # (part_id, b64)
+    chunks: list[tuple[str, str]] = []
 
     for path in paths:
         text = path.read_text(encoding="utf-8", errors="replace")
         part_id = "000"
         body_lines: list[str] = []
         in_body = False
+
+        # header: PyIDE-mail-pack kind=... sha256=... bytes=... part=...
+        first = text.splitlines()[0] if text else ""
+        for key in ("kind", "sha256", "bytes", "part"):
+            m = re.search(rf"\b{key}=([^\s]+)", first)
+            if m:
+                meta[key] = m.group(1)
+                if key == "part":
+                    part_id = m.group(1)
+
         for line in text.splitlines():
-            if line.startswith("# kind="):
-                meta["kind"] = line.split("=", 1)[1].strip()
-            elif line.startswith("# sha256="):
-                meta["sha256"] = line.split("=", 1)[1].strip()
-            elif line.startswith("# bytes="):
-                meta["bytes"] = line.split("=", 1)[1].strip()
-            elif line.startswith("# part="):
-                part_id = line.split("=", 1)[1].strip()
-            elif line.strip() == "# ---BEGIN---":
+            s = line.strip()
+            # new format
+            if s == "BEGIN" or s == "# ---BEGIN---":
                 in_body = True
                 continue
-            elif line.strip() == "# ---END---":
+            if s == "END" or s == "# ---END---":
                 in_body = False
                 continue
+            # old header meta
+            if s.startswith("# kind="):
+                meta["kind"] = s.split("=", 1)[1].strip()
+            elif s.startswith("# sha256="):
+                meta["sha256"] = s.split("=", 1)[1].strip()
+            elif s.startswith("# bytes="):
+                meta["bytes"] = s.split("=", 1)[1].strip()
+            elif s.startswith("# part="):
+                part_id = s.split("=", 1)[1].strip()
+                meta["part"] = part_id
             elif in_body:
-                # skip blank / comment
-                s = line.strip()
                 if s and not s.startswith("#"):
                     body_lines.append(s)
+
         chunks.append((part_id, "".join(body_lines)))
 
     chunks.sort(key=lambda x: x[0])
@@ -57,21 +73,20 @@ def read_b64_parts(paths: list[Path]) -> tuple[bytes, dict[str, str]]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Unpack PyIDE email .b64.txt packs")
-    ap.add_argument("files", nargs="+", help="*.b64.txt files (parts ok)")
-    ap.add_argument("--dest", default=".", help="куда распаковать tar (по умолчанию .)")
+    ap = argparse.ArgumentParser(description="Unpack PyIDE email .txt packs")
+    ap.add_argument("files", nargs="+", help="pyide-*.txt files (parts ok)")
+    ap.add_argument("--dest", default=".", help="куда распаковать")
     ap.add_argument("--keep-tar", action="store_true")
     args = ap.parse_args()
 
-    paths = []
+    paths: list[Path] = []
     for pattern in args.files:
         p = Path(pattern)
         if p.exists():
             paths.append(p)
         else:
             paths.extend(sorted(Path(".").glob(pattern)))
-    # unique preserve order
-    seen = set()
+    seen: set[Path] = set()
     uniq: list[Path] = []
     for p in paths:
         rp = p.resolve()
@@ -80,6 +95,12 @@ def main() -> int:
             uniq.append(p)
     if not uniq:
         print("Нет входных файлов", file=sys.stderr)
+        return 1
+
+    # не распаковывать сам скрипт, если попал в glob
+    uniq = [p for p in uniq if p.name not in {"unpack-pyide.txt", "unpack-from-email.py", "MANIFEST.txt"}]
+    if not uniq:
+        print("Нет файлов данных (только unpack/manifest?)", file=sys.stderr)
         return 1
 
     data, meta = read_b64_parts(uniq)
@@ -91,11 +112,6 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
-    if meta.get("bytes") and int(meta["bytes"]) != len(data):
-        print(
-            f"WARNING: size mismatch expected {meta['bytes']} got {len(data)}",
-            file=sys.stderr,
-        )
 
     dest = Path(args.dest).expanduser().resolve()
     dest.mkdir(parents=True, exist_ok=True)
@@ -104,7 +120,6 @@ def main() -> int:
     print(f"wrote {tar_path}")
 
     with tarfile.open(tar_path, "r:gz") as tf:
-        # safe extract (Python 3.12+ filter='data' if available)
         try:
             tf.extractall(dest, filter="data")
         except TypeError:
@@ -115,8 +130,8 @@ def main() -> int:
 
     print(f"unpacked into {dest}")
     print("Дальше:")
-    print("  bash bin/install.sh            # если распаковали полный пакет")
-    print("  bash bin/install-tools.sh      # если только vendor/wheels")
+    print("  bash bin/install.sh            # полный пакет")
+    print("  bash bin/install-tools.sh      # только vendor/wheels")
     return 0
 
 
