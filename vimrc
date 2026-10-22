@@ -29,7 +29,25 @@ set cursorline
 set signcolumn=yes
 set colorcolumn=88
 set scrolloff=4 sidescrolloff=8
+
+" --- Мышь: клик = курсор, колесо = скролл, тянуть = выделение --------------
 set mouse=a
+set mousemodel=popup_setpos
+set mousefocus
+" Современные терминалы (GNOME/Kitty/Windows Terminal/SSH)
+if has('mouse_sgr')
+  set ttymouse=sgr
+elseif has('mouse_xterm')
+  set ttymouse=xterm2
+endif
+" Колесо мыши (на случай старых терминалов без авто-скролла)
+nnoremap <silent> <ScrollWheelUp>     3<C-y>
+nnoremap <silent> <ScrollWheelDown>   3<C-e>
+inoremap <silent> <ScrollWheelUp>     <C-o>3<C-y>
+inoremap <silent> <ScrollWheelDown>   <C-o>3<C-e>
+nnoremap <silent> <S-ScrollWheelUp>   <C-u>
+nnoremap <silent> <S-ScrollWheelDown> <C-d>
+" Двойной клик — слово; тройной — строка (как обычно в Vim с mouse=a)
 set clipboard=unnamedplus
 set hidden
 set updatetime=300

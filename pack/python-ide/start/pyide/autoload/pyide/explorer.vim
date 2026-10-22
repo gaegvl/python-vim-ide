@@ -24,6 +24,9 @@ function! pyide#explorer#open() abort
   call s:render(l:root)
   nnoremap <buffer><silent> <CR> :call <SID>enter()<CR>
   nnoremap <buffer><silent> o    :call <SID>enter()<CR>
+  " Мышь: клик по строке — открыть / раскрыть папку
+  nnoremap <buffer><silent> <LeftMouse> <LeftMouse>:call <SID>enter()<CR>
+  nnoremap <buffer><silent> <2-LeftMouse> :call <SID>enter()<CR>
   nnoremap <buffer><silent> q    :close<CR>
   nnoremap <buffer><silent> R    :call <SID>refresh()<CR>
   nnoremap <buffer><silent> -    :call <SID>up()<CR>
