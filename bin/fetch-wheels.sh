@@ -1,5 +1,6 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Запускать на машине С интернетом — наполняет vendor/wheels для Astra
+# Запуск: bash bin/fetch-wheels.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/vendor/wheels"

@@ -1,5 +1,17 @@
 # Установка на Astra Linux (офлайн)
 
+## Важно: ошибка «нет файла /usr/bin/env»
+
+На части Astra нет `/usr/bin/env`. Не запускайте `./bin/install-tools.sh`.
+Только так:
+
+```bash
+bash bin/install-tools.sh
+bash bin/install.sh
+```
+
+Скрипт после установки чинит shebang у `ruff`/`pytest` в venv.
+
 ## Рекомендуемый путь
 
 ```bash

@@ -1,5 +1,6 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Полная установка PyIDE: Vim-конфиг + офлайн Python-инструменты
+# Запуск: bash bin/install.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
