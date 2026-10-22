@@ -28,24 +28,33 @@ function! pyide#venv#auto() abort
   endif
 
   " 4) Глобальный PyIDE tools venv (из bin/install-tools.sh)
-  let l:ide = expand('~/.local/share/pyide/venv/bin/python')
-  if executable(l:ide)
-    let g:pyide_python = l:ide
-    let g:pyide_venv = 'pyide'
-    call s:prepend_bin(expand('~/.local/share/pyide/venv/bin'))
-    return
-  endif
+  for l:ide in [
+        \ expand('~/.local/share/pyide/venv/bin/python'),
+        \ expand('~/pyide/venv/bin/python'),
+        \ ]
+    if executable(l:ide)
+      let g:pyide_python = l:ide
+      let g:pyide_venv = 'pyide'
+      call s:prepend_bin(fnamemodify(l:ide, ':h'))
+      return
+    endif
+  endfor
 
   " 5) Режим --target (нет python3-venv)
-  let l:pp = expand('~/.local/share/pyide/pythonpath')
-  if filereadable(l:pp)
-    let l:target = trim(readfile(l:pp)[0])
-    if isdirectory(l:target)
-      let $PYTHONPATH = l:target . (empty($PYTHONPATH) ? '' : ':' . $PYTHONPATH)
-      call s:prepend_bin(l:target . '/bin')
-      let g:pyide_venv = 'pyide-target'
+  for l:pp in [
+        \ expand('~/.local/share/pyide/pythonpath'),
+        \ expand('~/pyide/pythonpath'),
+        \ ]
+    if filereadable(l:pp)
+      let l:target = trim(readfile(l:pp)[0])
+      if isdirectory(l:target)
+        let $PYTHONPATH = l:target . (empty($PYTHONPATH) ? '' : ':' . $PYTHONPATH)
+        call s:prepend_bin(l:target . '/bin')
+        let g:pyide_venv = 'pyide-target'
+        break
+      endif
     endif
-  endif
+  endfor
 
   let g:pyide_python = 'python3'
 endfunction
