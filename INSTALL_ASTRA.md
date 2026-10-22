@@ -1,5 +1,26 @@
 # Установка на Astra Linux (офлайн)
 
+## Важно: что писать в `~/.vimrc`
+
+**Правильно** (Vimscript):
+```vim
+source ~/python-vim-ide/vimrc
+```
+
+**Неправильно** — НЕ добавляйте в `.vimrc`:
+```vim
+source ~/.local/share/pyide/env.sh
+```
+`env.sh` — это скрипт **для bash** (`export PATH=...`). В Vim будет ошибка:
+`E1042: Команда :export используется только в Vim9 script`.
+
+Перед Vim в терминале (по желанию):
+```bash
+source ~/.local/share/pyide/env.sh
+vim
+```
+Vim и сам найдёт venv через `~/.local/share/pyide/python`.
+
 ## Важно: типичные ошибки Astra
 
 **«недопустимое название pipefail»** — скрипт запущен через `sh` (dash), не bash.

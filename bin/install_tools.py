@@ -273,7 +273,10 @@ def main() -> int:
         else:
             (legacy / "pythonpath").write_text(f"{target}\n", encoding="utf-8")
 
-    print(f"\nГотово.\n  source {marker}\n  В Vim: :PyIdeHealth")
+    print(f"\nГотово.")
+    print(f"  В bash (не в .vimrc!):  source {marker}")
+    print(f"  В ~/.vimrc только:      source ~/python-vim-ide/vimrc")
+    print(f"  В Vim: :PyIdeHealth")
     if not find_wheel(wheels, "pip"):
         print("Подсказка: в следующем почтовом пакете будут pip/setuptools/wheel.")
     return 0
