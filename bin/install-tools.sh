@@ -7,10 +7,11 @@
 # Или строго bash (не sh!):
 #   bash bin/install-tools.sh
 #
-if [ -z "${BASH_VERSION:-}" ]; then
-  echo "Это не bash (сейчас $0 через sh/dash). Запустите так:"
+# sh на Astra = dash (нет pipefail/[[]). Даже «bash» иногда = sh в POSIX-режиме.
+if ! eval '[[ 1 == 1 ]]' 2>/dev/null; then
+  echo "Нужен настоящий bash, либо поставьте через python3:"
   echo "  python3 bin/install_tools.py"
-  echo "  # или:  bash bin/install-tools.sh"
+  echo "  # или:  /bin/bash bin/install-tools.sh"
   exit 1
 fi
 set +e
