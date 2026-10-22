@@ -24,8 +24,8 @@ vim ~/opt/python-vim-ide/examples/demo.py
 
 | Область | Возможности | Клавиши |
 |---|---|---|
-| Проект | дерево файлов, fuzzy find, grep, recent | `SPC e/ff/fb/fg/fr` |
-| Код | дополнение (Jedi), gd/gr/K, rename | `.` / `gd` `gr` `K` |
+| Интерфейс | раскладка VS Code: дерево \| код \| терминал | `SPC l` авто при старте |
+| Проект | дерево файлов, fuzzy find, grep, recent | `SPC e/ff/fb/fg/fr` || Код | дополнение (Jedi), gd/gr/K, rename | `.` / `gd` `gr` `K` |
 | Качество | lint, format (Python+JSON), organize imports | `SPC rl/rf/ri` F7 F8 |
 | Запуск | run, pytest, REPL, terminal | `SPC rr/rt/rv/tt` F5 F6 |
 | Отладка | breakpoint ●, pdb | `SPC b` `SPC rd` F9 |

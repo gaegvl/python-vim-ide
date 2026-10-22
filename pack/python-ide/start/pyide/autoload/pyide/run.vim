@@ -29,7 +29,7 @@ function! pyide#run#repl() abort
 endfunction
 
 function! pyide#run#terminal() abort
-  call s:term(&shell, 'Terminal')
+  call pyide#layout#focus_terminal()
 endfunction
 
 function! s:module_exists(name) abort

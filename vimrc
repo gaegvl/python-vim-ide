@@ -145,7 +145,11 @@ nnoremap <silent> <Space>gs :PyIdeGitStatus<CR>
 nnoremap <silent> <Space>gb :PyIdeGitBlame<CR>
 
 " Терминал
-nnoremap <silent> <Space>tt :PyIdeTerminal<CR>
+nnoremap <silent> <Space>tt :PyIdeTermToggle<CR>
+nnoremap <silent> <Space>`  :PyIdeTermFocus<CR>
+nnoremap <silent> <C-`>     :PyIdeTermToggle<CR>
+nnoremap <silent> <Space>l  :PyIdeLayoutToggle<CR>
+nnoremap <silent> <Space>L  :PyIdeLayout<CR>
 
 " Tags / сессия / справка (F1 тоже — если Space? не ловится терминалом)
 nnoremap <silent> <Space>ct :PyIdeCtags<CR>
@@ -156,6 +160,10 @@ nnoremap <silent> <F1>      :PyIdeHelp<CR>
 
 " Автоформат при сохранении (Python + JSON). Отключить: let g:pyide_format_on_save = 0
 let g:pyide_format_on_save = get(g:, 'pyide_format_on_save', 1)
+" Авто-раскладка IDE при старте. Отключить: let g:pyide_auto_layout = 0
+let g:pyide_auto_layout = get(g:, 'pyide_auto_layout', 1)
+let g:pyide_explorer_width = get(g:, 'pyide_explorer_width', 28)
+let g:pyide_term_rows = get(g:, 'pyide_term_rows', 12)
 
 " --- Автокоманды ------------------------------------------------------------
 augroup PyIdeGlobal
@@ -165,6 +173,8 @@ augroup PyIdeGlobal
   autocmd BufEnter *.py call pyide#venv#auto()
   autocmd VimEnter * call pyide#venv#auto()
   autocmd VimEnter * call pyide#statusline#setup()
+  " Раскладка VS Code: дерево | код | терминал (выкл: let g:pyide_auto_layout = 0)
+  autocmd VimEnter * nested call pyide#layout#on_vim_enter()
 augroup END
 
 " Загрузка пакета (packadd не нужен для start/)

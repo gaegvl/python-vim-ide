@@ -40,6 +40,10 @@ command! -nargs=0 PyIdeBreakClear   call pyide#breakpoint#clear()
 command! -nargs=0 PyIdeHelp         call pyide#whichkey#show()
 command! -nargs=0 PyIdeSessionSave  call pyide#session#save()
 command! -nargs=0 PyIdeSessionLoad  call pyide#session#load()
+command! -nargs=0 PyIdeLayout       call pyide#layout#ide()
+command! -nargs=0 PyIdeLayoutToggle call pyide#layout#toggle()
+command! -nargs=0 PyIdeTermToggle   call pyide#layout#terminal_toggle()
+command! -nargs=0 PyIdeTermFocus    call pyide#layout#focus_terminal()
 
 " Знаки для диагностики и git
 call sign_define('PyIdeError',   {'text': 'E>', 'texthl': 'ErrorMsg'})
