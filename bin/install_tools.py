@@ -191,10 +191,12 @@ def main() -> int:
 
     bootstrap_pip(py_for_pip, wheels, boot_dir)
 
-    # сначала pip/setuptools/wheel, потом IDE-пакеты
-    packages = ["pip", "setuptools", "wheel", "jedi", "parso", "ruff", "pytest", "isort", "debugpy"]
+    # обязательные / желательные / опциональные (бинарные под конкретный CPython)
+    required = ["pip", "setuptools", "wheel", "jedi", "parso"]
+    useful = ["ruff", "pytest"]
+    optional = ["isort", "debugpy"]  # часто нет wheel под версию Python на Astra
     print("Ставлю пакеты...")
-    for pkg in packages:
+    for pkg in required + useful + optional:
         if mode == "venv":
             cmd, env = pip_cmd(py_for_pip, wheels, boot_dir, [pkg])
         else:
@@ -206,6 +208,8 @@ def main() -> int:
             )
         if run(cmd, env=env) == 0:
             print(f"  OK  {pkg}")
+        elif pkg in optional:
+            print(f"  SKIP {pkg} (нет wheel под этот Python — для IDE не критично)")
         else:
             print(f"  SKIP {pkg}")
 
