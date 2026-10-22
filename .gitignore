@@ -12,3 +12,4 @@ tags
 .pyide/
 .pytest_cache/
 *.egg-info/
+dist/

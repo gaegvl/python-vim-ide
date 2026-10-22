@@ -51,6 +51,18 @@ python-vim-ide/
   templates/                 # .gitignore для проектов
 ```
 
+## Доставка на Astra через почту (без .whl/.py)
+
+Если почта режет исполняемые и wheels — упакуйте в `.txt` (base64):
+
+```bash
+./bin/pack-for-email.sh --chunk 2
+# отправьте dist/email/*.txt почтой
+# на Astra: см. docs/EMAIL_TRANSFER.md
+```
+
+Подробно: [docs/EMAIL_TRANSFER.md](docs/EMAIL_TRANSFER.md)
+
 ## Офлайн на другой архитектуре / версии Python
 
 Wheels в `vendor/` собраны под **linux x86_64 / Python 3.12** (часть — universal).  
