@@ -120,7 +120,13 @@ fix_shebangs() {
   local f first
   for f in "$dir"/*; do
     [[ -f "$f" ]] || continue
-    first=$(head -n1 "$f" 2>/dev/null || true)
+    # бинарники (ruff) не трогаем
+    if grep -Iq . "$f" 2>/dev/null; then
+      :
+    else
+      continue
+    fi
+    first=$(head -n1 "$f" 2>/dev/null | tr -d '\000' || true)
     case "$first" in
       '#!/usr/bin/env'*|'#! /usr/bin/env'*)
         if [[ ! -w "$f" ]]; then
