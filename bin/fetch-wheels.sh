@@ -17,6 +17,7 @@ if [[ -n "$PYVER" ]]; then
 fi
 
 echo "Качаю IDE-зависимости в $DEST ..."
+python3 -m pip "${ARGS[@]}" pip setuptools wheel
 python3 -m pip "${ARGS[@]}" jedi parso
 python3 -m pip "${ARGS[@]}" --only-binary=:all: ruff || \
   python3 -m pip download -d "$DEST" ruff

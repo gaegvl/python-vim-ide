@@ -83,6 +83,19 @@ PyIDE mail pack (Astra-safe)
 
 ## Минимум vs полный набор
 
-- `--minimal` — только jedi+parso (дополнение, `gd`, документация)
-- без флагов — все wheels из `vendor/` (ruff, pytest, …)
+- `--bootstrap` / `--pip` — только pip+setuptools+wheel + `install_tools.py` (если на Astra «No module named pip»)
+- `--minimal` — jedi+parso+pip bootstrap
+- без флагов — все wheels из `vendor/` (включая pip)
 - `--full` — весь каталог `python-vim-ide`
+
+### Если уже прислали wheels, а pip нет
+
+Отдельным письмом (~3 МБ):
+```bash
+./bin/pack-for-email.sh --bootstrap
+# → pyide-pip.txt + unpack-pyide.txt
+```
+На Astra распакуйте в тот же `vendor/wheels` (допишет pip-*.whl) и снова:
+```bash
+python3 bin/install_tools.py
+```

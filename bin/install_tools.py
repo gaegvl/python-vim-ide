@@ -1,12 +1,16 @@
 """PyIDE offline tools installer. Run: python3 bin/install_tools.py
 
-Без bash/shebang/pipefail — для Astra, где sh=dash и нет /usr/bin/env.
+Без bash/shebang/pipefail. Сам поднимает pip из vendor/wheels, если
+модуля pip в системе нет (типично для Astra).
 """
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
+import zipfile
 from pathlib import Path
 
 
@@ -45,8 +49,101 @@ def pick_base() -> Path:
 
 
 def run(cmd: list[str], **kw) -> int:
-    print("+", " ".join(cmd))
+    print("+", " ".join(str(x) for x in cmd))
     return subprocess.call(cmd, **kw)
+
+
+def has_pip(py: str) -> bool:
+    return subprocess.call(
+        [py, "-m", "pip", "--version"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ) == 0
+
+
+def find_wheel(wheels: Path, name: str) -> Path | None:
+    matches = sorted(wheels.glob(f"{name}-*.whl"))
+    return matches[-1] if matches else None
+
+
+def bootstrap_pip(py: str, wheels: Path, boot_dir: Path) -> None:
+    """Установить pip без существующего pip: распаковать wheel + zipimport."""
+    if has_pip(py):
+        print("pip уже есть")
+        return
+
+    print("pip не найден — пробую ensurepip...")
+    run([py, "-m", "ensurepip", "--upgrade", "--default-pip"])
+    if has_pip(py):
+        print("pip поднят через ensurepip")
+        return
+
+    pip_whl = find_wheel(wheels, "pip")
+    setup_whl = find_wheel(wheels, "setuptools")
+    wheel_whl = find_wheel(wheels, "wheel")
+    if not pip_whl:
+        die(
+            "Нет модуля pip и нет pip-*.whl в vendor/wheels.\n"
+            "Обновите пакет с почты (нужны pip/setuptools/wheel) или:\n"
+            "  sudo apt-get install python3-pip"
+        )
+
+    print(f"Поднимаю pip из {pip_whl.name} (офлайн)...")
+    boot_dir.mkdir(parents=True, exist_ok=True)
+    extract_to = boot_dir / "pyboot"
+    if extract_to.exists():
+        shutil.rmtree(extract_to)
+    extract_to.mkdir(parents=True)
+
+    for whl in (pip_whl, setup_whl, wheel_whl):
+        if whl is None:
+            continue
+        with zipfile.ZipFile(whl) as zf:
+            zf.extractall(extract_to)
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(extract_to) + (
+        (":" + env["PYTHONPATH"]) if env.get("PYTHONPATH") else ""
+    )
+
+    # поставить pip/setuptools/wheel уже «нормально» в этот же интерпретатор
+    cmd = [
+        py,
+        "-m",
+        "pip",
+        "install",
+        "-q",
+        "--no-index",
+        f"--find-links={wheels}",
+        "pip",
+        "setuptools",
+        "wheel",
+    ]
+    # для target/venv без site-packages прав — user или prefix
+    rc = run(cmd, env=env)
+    if rc != 0:
+        # fallback: оставить PYTHONPATH на распакованный pip
+        marker = boot_dir / "BOOTSTRAP_PYTHONPATH"
+        marker.write_text(str(extract_to), encoding="utf-8")
+        print(f"pip будет через PYTHONPATH={extract_to}")
+        return
+
+    if not has_pip(py):
+        # всё ещё нет — используем boot PYTHONPATH дальше
+        marker = boot_dir / "BOOTSTRAP_PYTHONPATH"
+        marker.write_text(str(extract_to), encoding="utf-8")
+        print(f"pip через bootstrap PYTHONPATH={extract_to}")
+    else:
+        print("pip установлен офлайн из wheels")
+
+
+def pip_cmd(py: str, wheels: Path, boot_dir: Path, extra: list[str]) -> tuple[list[str], dict]:
+    env = os.environ.copy()
+    marker = boot_dir / "BOOTSTRAP_PYTHONPATH"
+    if marker.is_file():
+        boot = marker.read_text(encoding="utf-8").strip()
+        env["PYTHONPATH"] = boot + ((":" + env["PYTHONPATH"]) if env.get("PYTHONPATH") else "")
+    return [py, "-m", "pip", "install", "-q", "--no-index", f"--find-links={wheels}", *extra], env
 
 
 def main() -> int:
@@ -60,45 +157,59 @@ def main() -> int:
     if not os.access(whls[0], os.R_OK):
         die(f"Нет чтения {wheels}: chmod -R u+rX \"{wheels}\"")
 
-    py = os.environ.get("PYTHON", "python3")
+    py = os.environ.get("PYTHON", sys.executable or "python3")
     base = pick_base()
     print(f"Каталог установки: {base}")
-    print(f"Wheels: {wheels}")
+    print(f"Wheels: {wheels} ({len(whls)} файлов)")
+    print(f"Python: {py}")
 
     venv = Path(os.environ.get("PYIDE_VENV", base / "venv"))
     target = Path(os.environ.get("PYIDE_TARGET", base / "pyroot"))
+    boot_dir = base / "bootstrap"
+
     mode = "venv"
     pybin = venv / "bin" / "python"
     bindir = venv / "bin"
 
-    # try venv
     if venv.exists():
-        import shutil
-
         shutil.rmtree(venv, ignore_errors=True)
+
+    # venv без pip, если ensurepip нет — всё равно ок, поднимем сами
     rc = run([py, "-m", "venv", str(venv)])
     if rc != 0 or not pybin.is_file():
-        print("venv не создался — режим --target")
+        print("venv не создался — режим --target в", target)
         mode = "target"
         writable_dir(target) or die(f"Не могу писать в {target}")
         (target / "bin").mkdir(parents=True, exist_ok=True)
-        pybin = Path(py)
+        py_for_pip = py
         bindir = target / "bin"
-        pip_base = [py, "-m", "pip", "install", "-q", "--no-index", f"--find-links={wheels}", "--target", str(target)]
+        pybin_path = Path(py)
     else:
         print(f"Режим: venv ({venv})")
-        run([str(pybin), "-m", "pip", "install", "-q", "--upgrade", "pip"])
-        pip_base = [str(pybin), "-m", "pip", "install", "-q", "--no-index", f"--find-links={wheels}"]
+        py_for_pip = str(pybin)
+        pybin_path = pybin
 
+    bootstrap_pip(py_for_pip, wheels, boot_dir)
+
+    # сначала pip/setuptools/wheel, потом IDE-пакеты
+    packages = ["pip", "setuptools", "wheel", "jedi", "parso", "ruff", "pytest", "isort", "debugpy"]
     print("Ставлю пакеты...")
-    for pkg in ("jedi", "parso", "ruff", "pytest", "isort", "debugpy"):
-        cmd = list(pip_base) + [pkg]
-        if run(cmd) == 0:
+    for pkg in packages:
+        if mode == "venv":
+            cmd, env = pip_cmd(py_for_pip, wheels, boot_dir, [pkg])
+        else:
+            cmd, env = pip_cmd(
+                py_for_pip,
+                wheels,
+                boot_dir,
+                ["--target", str(target), pkg],
+            )
+        if run(cmd, env=env) == 0:
             print(f"  OK  {pkg}")
         else:
             print(f"  SKIP {pkg}")
 
-    # shebang fix for text scripts only
+    # shebang fix
     if bindir.is_dir() and mode == "venv":
         for f in bindir.iterdir():
             if not f.is_file():
@@ -115,7 +226,7 @@ def main() -> int:
                 continue
             if text.startswith("#!/usr/bin/env") or text.startswith("#! /usr/bin/env"):
                 rest = text.split("\n", 1)[1] if "\n" in text else ""
-                f.write_text(f"#!{pybin}\n{rest}", encoding="utf-8")
+                f.write_text(f"#!{pybin_path}\n{rest}", encoding="utf-8")
                 f.chmod(f.stat().st_mode | 0o111)
                 print(f"  shebang fix: {f.name}")
 
@@ -123,7 +234,7 @@ def main() -> int:
     env = os.environ.copy()
     if mode == "target":
         env["PYTHONPATH"] = str(target) + ((":" + env["PYTHONPATH"]) if env.get("PYTHONPATH") else "")
-    check_py = str(pybin) if mode == "venv" else py
+    check_py = str(pybin_path)
     for mod in ("jedi", "pytest"):
         r = subprocess.run(
             [check_py, "-c", f"import {mod}; print('  {mod}', {mod}.__version__)"],
@@ -135,11 +246,11 @@ def main() -> int:
     marker = base / "env.sh"
     if mode == "venv":
         marker.write_text(
-            f'export PATH="{bindir}:$PATH"\nexport PYIDE_PYTHON="{pybin}"\n',
+            f'export PATH="{bindir}:$PATH"\nexport PYIDE_PYTHON="{pybin_path}"\n',
             encoding="utf-8",
         )
         (base / "install-mode").write_text("venv\n", encoding="utf-8")
-        (base / "python").write_text(f"{pybin}\n", encoding="utf-8")
+        (base / "python").write_text(f"{pybin_path}\n", encoding="utf-8")
     else:
         marker.write_text(
             f'export PYTHONPATH="{target}${{PYTHONPATH:+:$PYTHONPATH}}"\n'
@@ -151,15 +262,16 @@ def main() -> int:
         (base / "install-mode").write_text("target\n", encoding="utf-8")
         (base / "pythonpath").write_text(f"{target}\n", encoding="utf-8")
 
-    # legacy hints for Vim
     legacy = Path.home() / ".local" / "share" / "pyide"
     if writable_dir(legacy):
         if mode == "venv":
-            (legacy / "python").write_text(f"{pybin}\n", encoding="utf-8")
+            (legacy / "python").write_text(f"{pybin_path}\n", encoding="utf-8")
         else:
             (legacy / "pythonpath").write_text(f"{target}\n", encoding="utf-8")
 
     print(f"\nГотово.\n  source {marker}\n  В Vim: :PyIdeHealth")
+    if not find_wheel(wheels, "pip"):
+        print("Подсказка: в следующем почтовом пакете будут pip/setuptools/wheel.")
     return 0
 
 

@@ -17,11 +17,13 @@ OUT="${PYIDE_MAIL_OUT:-$ROOT/dist/email}"
 CHUNK_MB=0
 FULL=0
 MINIMAL=0
+BOOTSTRAP=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --full) FULL=1; shift ;;
     --minimal|--jedi) MINIMAL=1; shift ;;
+    --bootstrap|--pip) BOOTSTRAP=1; shift ;;
     --chunk) CHUNK_MB="${2:-0}"; shift 2 ;;
     --out) OUT="$2"; shift 2 ;;
     -h|--help)
@@ -45,17 +47,42 @@ if [[ "$FULL" -eq 1 ]]; then
     --exclude='python-vim-ide/dist' \
     -czf "$STAGE/payload.tgz" python-vim-ide
   KIND=full
-elif [[ "$MINIMAL" -eq 1 ]]; then
-  echo "Упаковываю минимум: jedi + parso..."
+elif [[ "$BOOTSTRAP" -eq 1 ]]; then
+  echo "Упаковываю bootstrap: pip + setuptools + wheel..."
   mkdir -p "$STAGE/vendor/wheels"
   shopt -s nullglob
-  local_files=("$ROOT"/vendor/wheels/jedi-*.whl "$ROOT"/vendor/wheels/parso-*.whl)
+  local_files=("$ROOT"/vendor/wheels/pip-*.whl "$ROOT"/vendor/wheels/setuptools-*.whl "$ROOT"/vendor/wheels/wheel-*.whl)
+  shopt -u nullglob
+  if [[ ${#local_files[@]} -eq 0 ]]; then
+    echo "Нет pip/setuptools/wheel. Сначала: ./bin/fetch-wheels.sh"
+    exit 1
+  fi
+  for f in "${local_files[@]}"; do
+    cp -a "$f" "$STAGE/vendor/wheels/"
+  done
+  # положить свежий установщик рядом в tar
+  mkdir -p "$STAGE/bin"
+  cp -a "$ROOT/bin/install_tools.py" "$STAGE/bin/"
+  tar -C "$STAGE" -czf "$STAGE/payload.tgz" vendor/wheels bin/install_tools.py
+  KIND=pip
+elif [[ "$MINIMAL" -eq 1 ]]; then
+  echo "Упаковываю минимум: jedi + parso + pip bootstrap..."
+  mkdir -p "$STAGE/vendor/wheels"
+  shopt -s nullglob
+  local_files=(
+    "$ROOT"/vendor/wheels/jedi-*.whl
+    "$ROOT"/vendor/wheels/parso-*.whl
+    "$ROOT"/vendor/wheels/pip-*.whl
+    "$ROOT"/vendor/wheels/setuptools-*.whl
+    "$ROOT"/vendor/wheels/wheel-*.whl
+  )
   shopt -u nullglob
   if [[ ${#local_files[@]} -eq 0 ]]; then
     echo "Нет jedi/parso wheels. Сначала: ./bin/fetch-wheels.sh"
     exit 1
   fi
   for f in "${local_files[@]}"; do
+    [[ -f "$f" ]] || continue
     cp -a "$f" "$STAGE/vendor/wheels/"
   done
   tar -C "$STAGE" -czf "$STAGE/payload.tgz" vendor/wheels
