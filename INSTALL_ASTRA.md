@@ -1,16 +1,24 @@
 # Установка на Astra Linux (офлайн)
 
-## Важно: ошибка «нет файла /usr/bin/env»
+## Важно: типичные ошибки Astra
 
-На части Astra нет `/usr/bin/env`. Не запускайте `./bin/install-tools.sh`.
-Только так:
-
+**«недопустимое название pipefail»** — скрипт запущен через `sh` (dash), не bash.
+Правильно:
 ```bash
+python3 bin/install_tools.py
+# или
 bash bin/install-tools.sh
-bash bin/install.sh
 ```
+Проверка: `bash --version` и `readlink -f $(command -v bash)`.
 
-Скрипт после установки чинит shebang у `ruff`/`pytest` в venv.
+**«нет файла /usr/bin/env»** — не запускайте `./bin/...`, только `bash bin/...`
+или `python3 bin/install_tools.py`.
+
+**«Отказано в доступе»**:
+```bash
+chmod -R u+rwX vendor
+PYIDE_HOME=$HOME/pyide python3 bin/install_tools.py
+```
 
 ## Рекомендуемый путь
 

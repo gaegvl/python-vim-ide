@@ -1,7 +1,11 @@
 #!/bin/bash
 # Полная установка PyIDE: Vim-конфиг + офлайн Python-инструменты
 # Запуск: bash bin/install.sh
-set -euo pipefail
+if [ -z "${BASH_VERSION:-}" ]; then
+  echo "Запустите: bash bin/install.sh"
+  exit 1
+fi
+set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TARGET="${1:-$HOME/opt/python-vim-ide}"

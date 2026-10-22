@@ -1,7 +1,11 @@
 #!/bin/bash
 # Запускать на машине С интернетом — наполняет vendor/wheels для Astra
 # Запуск: bash bin/fetch-wheels.sh
-set -euo pipefail
+if [ -z "${BASH_VERSION:-}" ]; then
+  echo "Запустите: bash bin/fetch-wheels.sh"
+  exit 1
+fi
+set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/vendor/wheels"
 mkdir -p "$DEST"

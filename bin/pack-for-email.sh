@@ -6,7 +6,11 @@
 #
 #   ./bin/pack-for-email.sh --minimal
 #   ./bin/pack-for-email.sh --full
-set -euo pipefail
+if [ -z "${BASH_VERSION:-}" ]; then
+  echo "Запустите: bash bin/pack-for-email.sh"
+  exit 1
+fi
+set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${PYIDE_MAIL_OUT:-$ROOT/dist/email}"

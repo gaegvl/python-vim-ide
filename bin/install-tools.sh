@@ -1,10 +1,18 @@
 #!/bin/bash
 # Офлайн-установка Python-инструментов IDE из vendor/wheels
 #
+# На Astra предпочтительно (без bash/pipefail):
+#   python3 bin/install_tools.py
+#
+# Или строго bash (не sh!):
 #   bash bin/install-tools.sh
 #
-# Если «Отказано в доступе» — ставьте в домашний каталог:
-#   PYIDE_VENV=$HOME/pyide/venv bash bin/install-tools.sh
+if [ -z "${BASH_VERSION:-}" ]; then
+  echo "Это не bash (сейчас $0 через sh/dash). Запустите так:"
+  echo "  python3 bin/install_tools.py"
+  echo "  # или:  bash bin/install-tools.sh"
+  exit 1
+fi
 set +e
 set -u
 
