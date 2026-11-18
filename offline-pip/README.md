@@ -17,9 +17,14 @@ python pack_library.py requests
 python pack_library.py django==4.2 --chunk-mb 20
 python pack_library.py -r requirements.txt --python-version 3.9
 
-# С Windows под Astra Linux + Python 3.9 (fastavro):
+# Только версия Python (платформа = как у вашего Python сейчас):
+python pack_library.py "fastavro==1.12.2" --python-version 3.9
+
+# Явно под Linux Astra:
 python pack_library.py "fastavro==1.12.2" --python-version 3.9 --platform manylinux2014_x86_64
-# (на Windows --platform подставится сам, если указан --python-version)
+
+# Явно под Windows:
+python pack_library.py "fastavro==1.12.2" --python-version 3.9 --platform win_amd64
 ```
 
 Результат в `dist-mail/`:

@@ -235,7 +235,8 @@ def main() -> int:
     ap.add_argument(
         "--platform",
         default=None,
-        help="платформа Astra, напр. manylinux2014_x86_64 (нужно при сборке с Windows)",
+        help="целевая ОС/CPU: manylinux2014_x86_64 | win_amd64 | macosx_11_0_arm64 | … "
+        "(по умолчанию — как у текущего Python, Linux не навязывается)",
     )
     ap.add_argument(
         "--abi",
@@ -252,12 +253,7 @@ def main() -> int:
     out_dir = Path(args.out).resolve()
     kind = safe_kind(args.packages, args.requirement)
 
-    # С Windows на Astra Linux без --platform часто качается win_amd64 — подставим linux
-    platform = args.platform
-    if args.python_version and not platform and sys.platform.startswith("win"):
-        platform = "manylinux2014_x86_64"
-        print(f"Windows → для Astra ставлю --platform {platform}")
-
+    # --platform только если указали явно (win_amd64 / manylinux2014_x86_64 / …)
     with tempfile.TemporaryDirectory(prefix="pylib-pack-") as tmp:
         tmp_path = Path(tmp)
         wheels = tmp_path / "wheels"
@@ -266,7 +262,7 @@ def main() -> int:
             args.requirement,
             wheels,
             args.python_version,
-            platform,
+            args.platform,
             args.abi,
         )
 
