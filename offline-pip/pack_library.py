@@ -39,6 +39,11 @@ def run(cmd: list[str]) -> None:
         die(f"команда завершилась с кодом {r.returncode}: {' '.join(cmd)}")
 
 
+def _pip_download(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    print("+", " ".join(cmd))
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
 def download_wheels(
     packages: list[str],
     req_file: str | None,
@@ -48,30 +53,54 @@ def download_wheels(
     abi: str | None,
 ) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    cmd = [sys.executable, "-m", "pip", "download", "-d", str(dest)]
-    # pip требует --only-binary=:all: и --no-compile при --python-version / --platform
-    cross = bool(py_ver or platform or abi)
-    if py_ver:
-        cmd += ["--python-version", py_ver]
-    if platform:
-        cmd += ["--platform", platform]
-    if abi:
-        cmd += ["--abi", abi]
-    if cross:
-        cmd += ["--only-binary=:all:", "--no-compile"]
-    if req_file:
-        cmd += ["-r", req_file]
-    cmd += packages
     if not packages and not req_file:
         die("Укажите пакет(ы) или -r requirements.txt")
-    run(cmd)
+
+    base = [sys.executable, "-m", "pip", "download", "-d", str(dest)]
+    cross = bool(py_ver or platform or abi)
+    if py_ver:
+        base += ["--python-version", py_ver]
+    if platform:
+        base += ["--platform", platform]
+    if abi:
+        base += ["--abi", abi]
+    if cross:
+        # обязательно при cross-download (ошибка с вашего скрина)
+        base += ["--only-binary=:all:"]
+    if req_file:
+        base += ["-r", req_file]
+    base += packages
+
+    # 1) без --no-compile (старый pip его не знает)
+    r = _pip_download(base)
+    err = ((r.stderr or "") + (r.stdout or "")).lower()
+
+    # 2) новый pip требует ещё --no-compile
+    if r.returncode != 0 and cross and "no-compile" in err and "no such option" not in err:
+        cmd2 = []
+        for x in base:
+            cmd2.append(x)
+            if x.startswith("--only-binary"):
+                cmd2.append("--no-compile")
+        if "--no-compile" not in cmd2:
+            cmd2.append("--no-compile")
+        r = _pip_download(cmd2)
+        err = ((r.stderr or "") + (r.stdout or "")).lower()
+
+    if r.stdout:
+        print(r.stdout, end="" if r.stdout.endswith("\n") else "\n")
+    if r.returncode != 0:
+        if r.stderr:
+            print(r.stderr, file=sys.stderr)
+        die(f"команда завершилась с кодом {r.returncode}")
+
     whls = list(dest.glob("*.whl")) + list(dest.glob("*.tar.gz"))
     if not whls:
         die(
             f"В {dest} ничего не скачалось.\n"
             "Для другой версии Python нужны готовые wheels.\n"
-            "Пример для Astra Linux x86_64:\n"
-            "  python pack_library.py 'fastavro==1.12.2' --python-version 3.9 "
+            "Пример для Astra Linux x86_64 с Windows:\n"
+            '  python pack_library.py "fastavro==1.12.2" --python-version 3.9 '
             "--platform manylinux2014_x86_64"
         )
     print(f"Скачано файлов: {len(whls)}")
