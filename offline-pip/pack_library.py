@@ -39,11 +39,26 @@ def run(cmd: list[str]) -> None:
         die(f"команда завершилась с кодом {r.returncode}: {' '.join(cmd)}")
 
 
-def download_wheels(packages: list[str], req_file: str | None, dest: Path, py_ver: str | None) -> None:
+def download_wheels(
+    packages: list[str],
+    req_file: str | None,
+    dest: Path,
+    py_ver: str | None,
+    platform: str | None,
+    abi: str | None,
+) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     cmd = [sys.executable, "-m", "pip", "download", "-d", str(dest)]
+    # pip требует --only-binary=:all: и --no-compile при --python-version / --platform
+    cross = bool(py_ver or platform or abi)
     if py_ver:
         cmd += ["--python-version", py_ver]
+    if platform:
+        cmd += ["--platform", platform]
+    if abi:
+        cmd += ["--abi", abi]
+    if cross:
+        cmd += ["--only-binary=:all:", "--no-compile"]
     if req_file:
         cmd += ["-r", req_file]
     cmd += packages
@@ -52,7 +67,13 @@ def download_wheels(packages: list[str], req_file: str | None, dest: Path, py_ve
     run(cmd)
     whls = list(dest.glob("*.whl")) + list(dest.glob("*.tar.gz"))
     if not whls:
-        die(f"В {dest} ничего не скачалось")
+        die(
+            f"В {dest} ничего не скачалось.\n"
+            "Для другой версии Python нужны готовые wheels.\n"
+            "Пример для Astra Linux x86_64:\n"
+            "  python pack_library.py 'fastavro==1.12.2' --python-version 3.9 "
+            "--platform manylinux2014_x86_64"
+        )
     print(f"Скачано файлов: {len(whls)}")
 
 
@@ -183,6 +204,16 @@ def main() -> int:
         help="целевая версия Python на Astra, напр. 3.9 / 3.11 (для pip download)",
     )
     ap.add_argument(
+        "--platform",
+        default=None,
+        help="платформа Astra, напр. manylinux2014_x86_64 (нужно при сборке с Windows)",
+    )
+    ap.add_argument(
+        "--abi",
+        default=None,
+        help="ABI, напр. cp39 (обычно не нужно — pip выведет из --python-version)",
+    )
+    ap.add_argument(
         "--keep-wheels",
         action="store_true",
         help="оставить скачанные wheels в out/wheels/",
@@ -192,10 +223,23 @@ def main() -> int:
     out_dir = Path(args.out).resolve()
     kind = safe_kind(args.packages, args.requirement)
 
+    # С Windows на Astra Linux без --platform часто качается win_amd64 — подставим linux
+    platform = args.platform
+    if args.python_version and not platform and sys.platform.startswith("win"):
+        platform = "manylinux2014_x86_64"
+        print(f"Windows → для Astra ставлю --platform {platform}")
+
     with tempfile.TemporaryDirectory(prefix="pylib-pack-") as tmp:
         tmp_path = Path(tmp)
         wheels = tmp_path / "wheels"
-        download_wheels(args.packages, args.requirement, wheels, args.python_version)
+        download_wheels(
+            args.packages,
+            args.requirement,
+            wheels,
+            args.python_version,
+            platform,
+            args.abi,
+        )
 
         if args.keep_wheels:
             keep = out_dir / "wheels"

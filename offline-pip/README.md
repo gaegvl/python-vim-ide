@@ -13,9 +13,13 @@
 
 ```bash
 cd offline-pip
-python3 pack_library.py requests
-python3 pack_library.py django==4.2 --chunk-mb 20
-python3 pack_library.py -r requirements.txt --python-version 3.9
+python pack_library.py requests
+python pack_library.py django==4.2 --chunk-mb 20
+python pack_library.py -r requirements.txt --python-version 3.9
+
+# С Windows под Astra Linux + Python 3.9 (fastavro):
+python pack_library.py "fastavro==1.12.2" --python-version 3.9 --platform manylinux2014_x86_64
+# (на Windows --platform подставится сам, если указан --python-version)
 ```
 
 Результат в `dist-mail/`:
