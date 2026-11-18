@@ -174,29 +174,63 @@ def bootstrap_pip(py: str, wheels: Path, boot: Path) -> dict:
     return env
 
 
+def _venv_python(venv: Path) -> Path | None:
+    # Linux/macOS: bin/python ; Windows: Scripts/python.exe
+    for cand in (
+        venv / "Scripts" / "python.exe",
+        venv / "bin" / "python",
+        venv / "bin" / "python3",
+    ):
+        if cand.exists():
+            return cand
+    return None
+
+
+def _warn_platform_mismatch(wheels: Path) -> None:
+    names = [p.name.lower() for p in wheels.glob("*.whl")]
+    if not names:
+        return
+    on_win = sys.platform.startswith("win")
+    has_linux = any("manylinux" in n or "linux_" in n for n in names)
+    has_win = any("win_amd64" in n or "win32" in n for n in names)
+    if on_win and has_linux and not has_win:
+        die(
+            "В пачке только Linux-wheels (manylinux), а сейчас Windows.\n"
+            "pip их не установит. Переупакуйте на машине с интернетом:\n"
+            '  python pack_library.py "fastavro==1.12.2" --python-version 3.9 '
+            "--platform win_amd64"
+        )
+    if (not on_win) and has_win and not has_linux:
+        die(
+            "В пачке только Windows-wheels (win_amd64), а сейчас Linux.\n"
+            "Переупакуйте с --platform manylinux2014_x86_64"
+        )
+
+
 def install_wheels(wheels: Path, venv: Path | None, user: bool) -> None:
     py = sys.executable
     env = os.environ.copy()
 
     if venv is not None:
-        pybin = venv / "bin" / "python"
-        if not pybin.exists():
+        pybin = _venv_python(venv)
+        if pybin is None:
             print(f"Создаю venv: {venv}")
             rc = run([sys.executable, "-m", "venv", str(venv)])
-            if rc != 0 or not pybin.exists():
-                print("venv не создался — ставлю через --user / --target")
+            pybin = _venv_python(venv)
+            if rc != 0 or pybin is None:
+                print("venv не создался — ставлю через --user / текущий python")
                 venv = None
             else:
                 py = str(pybin)
         else:
             py = str(pybin)
 
+    _warn_platform_mismatch(wheels)
     env = bootstrap_pip(py, wheels, wheels.parent / "bootstrap")
 
     pkgs = []
     for p in sorted(wheels.glob("*.whl")):
         pkgs.append(str(p))
-    # source distributions на всякий случай
     for p in sorted(wheels.glob("*.tar.gz")):
         if p.name != "payload.tgz":
             pkgs.append(str(p))
@@ -207,30 +241,42 @@ def install_wheels(wheels: Path, venv: Path | None, user: bool) -> None:
     cmd = [py, "-m", "pip", "install", "--no-index", f"--find-links={wheels}"]
     if user and venv is None:
         cmd.append("--user")
-    # ставим всё из find-links по именам файлов — проще поставить каталог:
-    # pip install --no-index --find-links=DIR pkg1 pkg2
-    # Извлечём имена пакетов из имён wheel: name-version-...
+
     names: list[str] = []
     for p in wheels.glob("*.whl"):
-        # pep 427: {distribution}-{version}(-...)-*.whl
         dist = p.name.split("-")[0]
         if dist not in names and dist not in {"pip", "setuptools", "wheel"}:
             names.append(dist)
-    # сначала tooling
+
+    failed = False
     for tool in ("pip", "setuptools", "wheel"):
         if list(wheels.glob(f"{tool}-*.whl")):
-            run(cmd + [tool], env=env)
+            if run(cmd + [tool], env=env) != 0:
+                failed = True
     if names:
-        run(cmd + names, env=env)
+        if run(cmd + names, env=env) != 0:
+            failed = True
     else:
-        # fallback: поставить каждый wheel файлом
         for p in pkgs:
-            run(cmd + [p], env=env)
+            if run(cmd + [p], env=env) != 0:
+                failed = True
 
     print("\nПроверка import:")
+    import_ok = True
     for name in names[:10]:
         mod = name.replace("-", "_")
-        subprocess.call([py, "-c", f"import {mod}; print('  OK', '{mod}')"], env=env)
+        if subprocess.call(
+            [py, "-c", f"import {mod}; print('  OK', '{mod}')"], env=env
+        ) != 0:
+            import_ok = False
+
+    if failed or not import_ok:
+        die(
+            "Установка не удалась (несовместимый wheel или ошибка pip).\n"
+            "Смотрите имена файлов в restored-wheels/wheels/:\n"
+            "  manylinux* → Linux/Astra\n"
+            "  win_amd64  → Windows"
+        )
 
 
 def main() -> int:

@@ -51,5 +51,10 @@ python3 unpack_library.txt PyLib-requests-part*.txt -o ./wheels
 ## Замечания
 
 - Вместе с пакетом качаются **зависимости** (как `pip download`).
-- Для Astra укажите версию Python: `--python-version 3.9`
-- Если на Astra нет pip — один раз упакуйте ещё и `pip setuptools wheel`, либо они подтянутся как зависимости некоторых пакетов; установщик умеет bootstrap из `pip-*.whl`.
+- Версия Python: `--python-version 3.9`
+- Платформа (куда будете ставить):
+  - Windows: `--platform win_amd64`
+  - Linux/Astra: `--platform manylinux2014_x86_64`
+  - без `--platform` — wheels под **текущую** ОС, где запускаете pack
+- `manylinux*.whl` на Windows **не установится** (и наоборот) — это нормально для pip.
+- Если на Astra нет pip — упакуйте ещё `pip setuptools wheel`; unpack умеет bootstrap из `pip-*.whl`.
