@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, Optional, Tuple
 
 _IDENT = re.compile(r"^[A-Za-z][A-Za-z0-9_$#]*$")
+
+# Oracle TIMESTAMP часто в MSK (+3) без tzinfo; Kafka — UTC.
+# По умолчанию вычитаем 3 часа. DATE (только день) не трогаем.
+_DEFAULT_TS_SHIFT_HOURS = -3
 
 
 def _check_ident(name: str, what: str) -> str:
@@ -17,7 +21,33 @@ def _check_ident(name: str, what: str) -> str:
     return name
 
 
-def _cell(v: Any) -> Any:
+def _is_date_only(dt: datetime) -> bool:
+    return (
+        dt.hour == 0
+        and dt.minute == 0
+        and dt.second == 0
+        and getattr(dt, "microsecond", 0) == 0
+    )
+
+
+def _shift_oracle_timestamp(
+    v: datetime,
+    shift_hours: float,
+) -> datetime:
+    """
+    Приводим Oracle TIMESTAMP к UTC-подобному виду для сравнения с Kafka.
+    • если tzinfo есть — просто в UTC;
+    • naive TIMESTAMP: shift_hours=-3 → вычесть 3ч (MSK);
+    • DATE-only (00:00:00) не сдвигаем.
+    """
+    if v.tzinfo is not None:
+        return v.astimezone(timezone.utc)
+    if shift_hours == 0 or _is_date_only(v):
+        return v.replace(tzinfo=timezone.utc)
+    return (v + timedelta(hours=shift_hours)).replace(tzinfo=timezone.utc)
+
+
+def _cell(v: Any, *, ts_shift_hours: float = _DEFAULT_TS_SHIFT_HOURS) -> Any:
     if v is None:
         return None
     if isinstance(v, bool):
@@ -25,9 +55,10 @@ def _cell(v: Any) -> Any:
     if isinstance(v, Decimal):
         return v
     if isinstance(v, datetime):
-        return v
+        return _shift_oracle_timestamp(v, ts_shift_hours)
     if isinstance(v, date):
-        return datetime(v.year, v.month, v.day)
+        # чистый DATE — без сдвига часов
+        return datetime(v.year, v.month, v.day, tzinfo=timezone.utc)
     if isinstance(v, bytes):
         try:
             return v.decode("utf-8")
@@ -38,19 +69,43 @@ def _cell(v: Any) -> Any:
     return str(v)
 
 
-def row_to_dict(columns, values) -> Dict[str, Any]:
+def row_to_dict(
+    columns,
+    values,
+    *,
+    ts_shift_hours: float = _DEFAULT_TS_SHIFT_HOURS,
+) -> Dict[str, Any]:
     """Имена колонок в lower_case — как поля Kafka after.*."""
     out = {}  # type: Dict[str, Any]
     for col, val in zip(columns, values):
         key = str(col).lower()
-        out[key] = _cell(val)
+        out[key] = _cell(val, ts_shift_hours=ts_shift_hours)
     return out
+
+
+def resolve_ts_shift_hours(oracle_cfg: Optional[dict] = None) -> float:
+    """
+    Сдвиг TIMESTAMP из Oracle к UTC для сравнения с Kafka.
+
+    oracle.timestamp_shift_hours: -3  (по умолчанию) — убрать +3 MSK
+    oracle.timestamp_offset_hours: 3  — синоним «на сколько Oracle впереди UTC»
+    """
+    cfg = oracle_cfg or {}
+    if cfg.get("timestamp_shift_hours") is not None:
+        return float(cfg["timestamp_shift_hours"])
+    if cfg.get("timestamp_offset_hours") is not None:
+        # offset +3 (MSK) → shift -3
+        return -float(cfg["timestamp_offset_hours"])
+    if cfg.get("tz_offset_hours") is not None:
+        return -float(cfg["tz_offset_hours"])
+    return float(_DEFAULT_TS_SHIFT_HOURS)
 
 
 def connect(oracle_cfg: dict):
     """
-    oracle_cfg (только коннект):
+    oracle_cfg (только коннект + опционально сдвиг времени):
       user, password, dsn  (или host, port, service_name)
+      timestamp_shift_hours: -3  (вычесть 3ч у TIMESTAMP; DATE не трогаем)
     prefix/table/pk задаются в pair.oracle
     """
     user = oracle_cfg.get("user") or oracle_cfg.get("username")
@@ -128,7 +183,14 @@ def resolve_pair_oracle(pair_oracle: dict, global_oracle: Optional[dict] = None)
     }
 
 
-def fetch_by_pk(conn, fqn: str, pk_column: str, key: Any) -> Optional[Dict[str, Any]]:
+def fetch_by_pk(
+    conn,
+    fqn: str,
+    pk_column: str,
+    key: Any,
+    *,
+    ts_shift_hours: float = _DEFAULT_TS_SHIFT_HOURS,
+) -> Optional[Dict[str, Any]]:
     """
     SELECT * FROM schema.table WHERE pk = :key
     Возвращает одну строку (dict) или None.
@@ -145,7 +207,7 @@ def fetch_by_pk(conn, fqn: str, pk_column: str, key: Any) -> Optional[Dict[str, 
         if row is None:
             return None
         cols = [d[0] for d in cur.description]
-        return row_to_dict(cols, row)
+        return row_to_dict(cols, row, ts_shift_hours=ts_shift_hours)
     finally:
         cur.close()
 
@@ -154,7 +216,21 @@ def fetch_pair_rows(
     conn,
     resolved: dict,
     key: Any,
+    *,
+    ts_shift_hours: float = _DEFAULT_TS_SHIFT_HOURS,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
-    sct = fetch_by_pk(conn, resolved["sct_fqn"], resolved["pk_column"], key)
-    soh = fetch_by_pk(conn, resolved["soh_fqn"], resolved["pk_column"], key)
+    sct = fetch_by_pk(
+        conn,
+        resolved["sct_fqn"],
+        resolved["pk_column"],
+        key,
+        ts_shift_hours=ts_shift_hours,
+    )
+    soh = fetch_by_pk(
+        conn,
+        resolved["soh_fqn"],
+        resolved["pk_column"],
+        key,
+        ts_shift_hours=ts_shift_hours,
+    )
     return sct, soh

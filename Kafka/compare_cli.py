@@ -22,11 +22,12 @@ from schema_source import resolve_schema
 
 try:
     from oracle_source import connect as oracle_connect
-    from oracle_source import fetch_pair_rows, resolve_pair_oracle
+    from oracle_source import fetch_pair_rows, resolve_pair_oracle, resolve_ts_shift_hours
 except ImportError:
     oracle_connect = None  # type: ignore
     fetch_pair_rows = None  # type: ignore
     resolve_pair_oracle = None  # type: ignore
+    resolve_ts_shift_hours = None  # type: ignore
 
 
 def load_config(path: str) -> dict:
@@ -331,7 +332,20 @@ def main() -> int:
                     ),
                     file=sys.stderr,
                 )
-                sct_row, soh_row = fetch_pair_rows(conn, resolved, key)
+                ts_shift = (
+                    resolve_ts_shift_hours(global_oracle)
+                    if resolve_ts_shift_hours is not None
+                    else -3
+                )
+                print(
+                    "# Oracle TIMESTAMP shift_hours={0} (DATE 00:00 без сдвига)".format(
+                        ts_shift
+                    ),
+                    file=sys.stderr,
+                )
+                sct_row, soh_row = fetch_pair_rows(
+                    conn, resolved, key, ts_shift_hours=ts_shift
+                )
                 sct_name = resolved["sct_name"]
                 soh_name = resolved["soh_name"]
                 sources[sct_name] = sct_row
