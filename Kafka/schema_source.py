@@ -93,76 +93,129 @@ def _catalog_entry_name(entry: Any) -> str:
     return ""
 
 
-def _topic_matches_name(topic: str, name: str) -> bool:
-    if not name:
+def _is_registry_doc(obj: Any) -> bool:
+    return isinstance(obj, dict) and "schema" in obj and (
+        "subject" in obj or "id" in obj or "version" in obj
+    )
+
+
+def _wanted_in_subject(wanted: str, subject: str) -> bool:
+    """Ищем вхождение wanted (топик / schema_key) в subject."""
+    if not wanted or not subject:
         return False
-    if name == topic or topic.endswith(name) or name.endswith(topic):
+    if wanted == subject:
         return True
-    # Confluent subject: topic-value / topic-key
-    if name.endswith("-value") or name.endswith("-key"):
-        base = name.rsplit("-", 1)[0]
-        if base == topic or topic.endswith(base) or base.endswith(topic):
+    if wanted in subject:
+        return True
+    # subject часто topic-value / topic-key
+    if subject.endswith("-value") or subject.endswith("-key"):
+        base = subject.rsplit("-", 1)[0]
+        if wanted == base or wanted in base or base in wanted:
             return True
-    nt = topic.replace("dbzm.", "").replace("csmr_", "")
-    nn = name.replace("dbzm.", "").replace("csmr_", "")
-    return nt == nn or nt in nn or nn in nt
+    w = wanted.replace("dbzm.", "").replace("csmr_", "")
+    s = subject.replace("dbzm.", "").replace("csmr_", "")
+    return bool(w) and (w == s or w in s or s in w)
 
 
-def load_schema_from_catalog_file(catalog_path: str, topic: str):
+def _topic_matches_name(topic: str, name: str) -> bool:
+    return _wanted_in_subject(topic, name)
+
+
+def _iter_catalog_entries(catalog: Any) -> list[tuple[str, Any]]:
+    """Нормализуем файл к списку (label, entry)."""
+    if isinstance(catalog, list):
+        out = []
+        for i, item in enumerate(catalog):
+            label = _catalog_entry_name(item) or f"[{i}]"
+            out.append((label, item))
+        return out
+
+    if not isinstance(catalog, dict):
+        return []
+
+    # { "schemas": [ {...}, ... ] } или { "subjects": [...] }
+    for wrap in ("schemas", "subjects", "items"):
+        if isinstance(catalog.get(wrap), list):
+            return _iter_catalog_entries(catalog[wrap])
+
+    # один документ Registry
+    if _is_registry_doc(catalog):
+        return [(_catalog_entry_name(catalog) or "schema", catalog)]
+
+    # каталог ключ → запись
+    return [(str(k), v) for k, v in catalog.items()]
+
+
+def _pick_catalog_entry(catalog: Any, wanted: str, topic: str) -> Any:
+    """
+    Ищем запись по schema_key/topic:
+    — ключ каталога
+    — вхождение в subject / schemaName
+    """
+    entries = _iter_catalog_entries(catalog)
+    if not entries:
+        return None
+
+    keys = []
+    for k in (wanted, topic):
+        if k and k not in keys:
+            keys.append(k)
+
+    # 1) точное совпадение ключа
+    for want in keys:
+        for label, entry in entries:
+            if label == want:
+                return entry
+
+    # 2) вхождение wanted в subject / schemaName / label
+    for want in keys:
+        for label, entry in entries:
+            subj = _catalog_entry_name(entry) or label
+            if _wanted_in_subject(want, subj) or _wanted_in_subject(want, label):
+                return entry
+
+    # 3) один документ в файле — берём его (обратная совместимость)
+    if len(entries) == 1 and _is_registry_doc(entries[0][1]):
+        return entries[0][1]
+
+    return None
+
+
+def load_schema_from_catalog_file(
+    catalog_path: str,
+    topic: str,
+    schema_key: str | None = None,
+):
     """
     Вспомогательный путь: JSON на диске.
 
-    Поддерживаются форматы:
-    1) каталог { "topic.name": { data: { schema: "..." }, schemaName: "..." }, ... }
-    2) один документ Schema Registry:
-       { "subject": "topic-value", "version": N, "id": N, "schema": "{...}" }
-       (schema — строка с JSON Avro)
+    Форматы:
+    1) каталог { "topic.name": { ... }, ... }
+    2) один документ Registry: { "subject", "schema": "{...}" }
+    3) несколько схем: [ {...}, {...} ] или { "schemas": [ {...}, ... ] }
+
+    Поиск: schema_key (если задан) или имя топика — вхождение в subject.
     """
     with open(catalog_path, "r", encoding="utf-8") as f:
         catalog = json.load(f)
 
-    if not isinstance(catalog, dict):
-        raise SystemExit(
-            f"Каталог {catalog_path} должен быть JSON-объектом, "
-            f"получено {type(catalog).__name__}"
-        )
-
-    # Один файл = одна схема (ответ /subjects/.../versions/...)
-    if "schema" in catalog and (
-        "subject" in catalog or "id" in catalog or catalog.get("type") == "record"
-    ):
-        subj = str(catalog.get("subject") or "")
-        if subj and not _topic_matches_name(topic, subj):
-            print(
-                f"# warning: file subject={subj!r} != topic={topic!r}, "
-                f"всё равно берём schema из файла",
-                file=sys.stderr,
-            )
-        raw = extract_schema_from_value(catalog)
-        schema = _parse_schema_obj(raw)
-        print(
-            f"# schema from file {catalog_path} "
-            f"(registry doc, subject={subj or '?'}) for {topic}",
-            file=sys.stderr,
-        )
-        return schema
-
-    entry = None
-    if topic in catalog:
-        entry = catalog[topic]
-    else:
-        for k, v in catalog.items():
-            name = _catalog_entry_name(v) or str(k)
-            if _topic_matches_name(topic, str(k)) or _topic_matches_name(topic, name):
-                entry = v
-                break
+    wanted = (schema_key or topic or "").strip()
+    entry = _pick_catalog_entry(catalog, wanted, topic)
 
     if entry is None:
-        raise SystemExit(f"В каталоге {catalog_path} нет схемы для топика {topic!r}")
+        raise SystemExit(
+            f"В каталоге {catalog_path} нет схемы для "
+            f"schema_key/topic≈{wanted!r}"
+        )
 
     raw = extract_schema_from_value(entry)
     schema = _parse_schema_obj(raw)
-    print(f"# schema from file {catalog_path} for {topic}", file=sys.stderr)
+    subj = _catalog_entry_name(entry) or wanted
+    print(
+        f"# schema from file {catalog_path} subject/key={subj!r} "
+        f"(wanted={wanted!r}) for topic={topic}",
+        file=sys.stderr,
+    )
     return schema
 
 
@@ -271,11 +324,19 @@ def resolve_schema(cluster: dict, data_topic: str):
     Приоритет:
     1) schema_topic в кластере (основной)
     2) schema_catalog — путь к JSON (вспомогательный)
+
+    schema_key — что искать в Kafka-key / subject файла;
+    если не задан, берётся имя топика данных.
     """
+    schema_key = cluster.get("schema_key") or data_topic
     if cluster.get("schema_topic"):
         return load_schema_from_kafka_topic(cluster, data_topic)
     if cluster.get("schema_catalog"):
-        return load_schema_from_catalog_file(cluster["schema_catalog"], data_topic)
+        return load_schema_from_catalog_file(
+            cluster["schema_catalog"],
+            data_topic,
+            schema_key=schema_key,
+        )
     raise SystemExit(
         f"[{cluster.get('name')}] укажите schema_topic (основной) "
         f"или schema_catalog (файл, запасной)"

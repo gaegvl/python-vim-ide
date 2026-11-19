@@ -14,7 +14,8 @@
       "keystore_pass": "pass",
       "schema_topic": "ods.schemas",
       "schema_partition": 0,
-      "schema_catalog": null
+      "schema_catalog": null,
+      "schema_key": null
     },
     "right": {
       "name": "610_5",
@@ -23,9 +24,10 @@
       "truststore_pass": "pass",
       "keystore_pfx": "C:\\\\path\\\\b-keystore.pfx",
       "keystore_pass": "pass",
-      "schema_topic": "ods.schemas",
+      "schema_topic": null,
       "schema_partition": 0,
-      "schema_catalog": null
+      "schema_catalog": "C:\\\\path\\\\schemas_610_5.json",
+      "schema_key": "rkk.customer_service.customer_form"
     }
   },
   "pairs": [
