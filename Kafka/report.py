@@ -177,10 +177,17 @@ def _render_pair(idx: int, pair: dict) -> str:
 
     off = pair.get("смещения") or {}
     oracle_info = pair.get("oracle") or {}
+    warns = pair.get("предупреждения") or []
     src_lines = []
     for c in cols:
         meta = off.get(c) or {}
-        if meta.get("offset") is not None:
+        if meta.get("error"):
+            src_lines.append(
+                "<b>{0}:</b> <span class='status-diff'>не найдено — {1}</span>".format(
+                    _esc(c), _esc(meta.get("error"))
+                )
+            )
+        elif meta.get("offset") is not None:
             extra = ""
             if meta.get("decode_error"):
                 extra = " <span class='status-diff'>decode: {0}</span>".format(
@@ -211,11 +218,14 @@ def _render_pair(idx: int, pair: dict) -> str:
                 )
             )
         elif meta.get("fqn"):
+            found = meta.get("found")
+            found_txt = "" if found else " <span class='status-diff'>нет строки</span>"
             src_lines.append(
-                "<b>{0}:</b> <code>{1}</code> pk={2}".format(
+                "<b>{0}:</b> <code>{1}</code> pk={2}{3}".format(
                     _esc(c),
                     _esc(meta.get("fqn")),
                     _esc(meta.get("pk")),
+                    found_txt,
                 )
             )
         elif c in oracle_info:
@@ -243,6 +253,7 @@ def _render_pair(idx: int, pair: dict) -> str:
   <h2>{idx}. {_esc(pair.get('название') or 'Пара')}</h2>
   <span class="pill {pill}">{status}</span>
   <p class="muted">{"<br/>".join(src_lines)}</p>
+  {("<p class='status-partial'><b>Частично:</b> " + _esc("; ".join(warns)) + "</p>") if warns else ""}
   <p><b>Ключ пары:</b> <code>{_esc(pair.get('ключ'))}</code></p>
   <ul>
     <li>Всего полей: {s.get('всего_полей', len(all_fields))}</li>

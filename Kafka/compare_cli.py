@@ -13,7 +13,7 @@ import json
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from compare import compare_sources
 from reader import read_from_cluster, try_parse
@@ -142,183 +142,162 @@ def main() -> int:
             "ключ": key,
         }  # type: Dict[str, Any]
 
-        try:
-            if key is None and pair.get("left_offset") is None:
-                raise SystemExit(
-                    "У пары [{0}] нужен свой key (или left_offset/right_offset)".format(
-                        name
+        warnings = []  # type: List[str]
+        sources = {}  # type: Dict[str, Any]
+        unwrap_names = []  # type: List[str]
+        offsets = {}  # type: Dict[str, Any]
+        oracle_meta = {}  # type: Dict[str, Any]
+
+        def soft_fail(src_name: str, err: Any) -> None:
+            msg = str(err)
+            warnings.append("{0}: {1}".format(src_name, msg))
+            print("# warning [{0}]: {1}".format(src_name, msg), file=sys.stderr)
+            sources[src_name] = None
+            offsets.setdefault(src_name, {})["error"] = msg
+            offsets[src_name]["found"] = False
+
+        def read_and_fix_schema(cluster, topic, sch, **kwargs):
+            """
+            Читаем по схеме subject/topic.
+            Retry по schema_id — только если decode подтвердил wire=confluent.
+            """
+            from reader import _split_wire_meta
+
+            msg = read_from_cluster(
+                cluster, topic=topic, avro_schema=sch, **kwargs
+            )
+            val = msg.get("value")
+            wire = msg.get("wire")
+            sid = msg.get("schema_id")
+            peek_id = msg.get("peek_schema_id")
+            catalog = cluster.get("schema_catalog")
+            raw = msg.get("raw_value")
+
+            decode_failed = (
+                isinstance(val, dict)
+                and val.get("_binary")
+                and val.get("_error")
+            )
+
+            print(
+                "# [{0}] wire={1} schema_id={2} peek_id={3} hex[{4}] "
+                "decode_ok={5}".format(
+                    cluster["name"],
+                    wire,
+                    sid,
+                    peek_id,
+                    msg.get("value_hex"),
+                    not decode_failed,
+                ),
+                file=sys.stderr,
+            )
+
+            if not decode_failed:
+                return msg
+
+            use_id = sid if wire == "confluent" else None
+            if use_id is None and wire and "confluent" in str(wire) and peek_id:
+                use_id = peek_id
+            if not catalog or use_id is None:
+                if peek_id and decode_failed:
+                    print(
+                        "# [{0}] peek_schema_id={1} не используем "
+                        "(возможно не Confluent-header)".format(
+                            cluster["name"], peek_id
+                        ),
+                        file=sys.stderr,
                     )
-                )
+                return msg
 
-            sch_l = schema_for(left, left_topic)
-            sch_r = schema_for(right, right_topic)
-
-            def read_and_fix_schema(cluster, topic, sch, **kwargs):
-                """
-                Читаем по схеме subject/topic.
-                Retry по schema_id — только если decode подтвердил wire=confluent
-                (peek raw[0]==0 сам по себе часто ложный: так начинается Avro).
-                """
-                from reader import _split_wire_meta
-
-                msg = read_from_cluster(
-                    cluster, topic=topic, avro_schema=sch, **kwargs
-                )
-                val = msg.get("value")
-                wire = msg.get("wire")
-                sid = msg.get("schema_id")  # только после успешного confluent
-                peek_id = msg.get("peek_schema_id")
-                catalog = cluster.get("schema_catalog")
-                raw = msg.get("raw_value")
-
-                decode_failed = (
-                    isinstance(val, dict)
-                    and val.get("_binary")
-                    and val.get("_error")
-                )
-
+            try:
+                sch2 = schema_for(cluster, topic, schema_id=int(use_id))
+            except Exception as e:
                 print(
-                    "# [{0}] wire={1} schema_id={2} peek_id={3} hex[{4}] "
-                    "decode_ok={5}".format(
-                        cluster["name"],
-                        wire,
-                        sid,
-                        peek_id,
-                        msg.get("value_hex"),
-                        not decode_failed,
+                    "# [{0}] schema by id failed: {1}".format(
+                        cluster["name"], e
                     ),
                     file=sys.stderr,
                 )
+                return msg
 
-                # Успешный raw/confluent по subject — не трогаем
-                if not decode_failed:
-                    return msg
+            if raw is None:
+                return msg
+            data2 = try_parse(raw, avro_schema=sch2)
+            data2, wire_meta = _split_wire_meta(data2)
+            out = dict(msg)
+            out["value"] = data2
+            out["wire"] = wire_meta.get("wire") or out.get("wire")
+            if wire_meta.get("schema_id") is not None:
+                out["schema_id"] = wire_meta.get("schema_id")
+            if isinstance(data2, dict) and data2.get("_error"):
+                out["decode_error"] = data2.get("_error")
+            else:
+                out["decode_error"] = None
+            return out
 
-                # Retry по id только при уверенном Confluent header
-                use_id = sid if wire == "confluent" else None
-                if use_id is None and wire and "confluent" in str(wire) and peek_id:
-                    use_id = peek_id
-                if not catalog or use_id is None:
-                    if peek_id and decode_failed:
-                        print(
-                            "# [{0}] peek_schema_id={1} не используем: "
-                            "схема по subject не декодировала; "
-                            "проверьте hex — это может быть не Confluent-header "
-                            "(сырой Avro тоже часто начинается с 00)".format(
-                                cluster["name"], peek_id
-                            ),
-                            file=sys.stderr,
-                        )
-                    return msg
-
-                try:
-                    sch2 = schema_for(cluster, topic, schema_id=int(use_id))
-                except SystemExit as e:
-                    print(
-                        "# [{0}] нет схемы id={1} в catalog: {2}".format(
-                            cluster["name"], use_id, e
-                        ),
-                        file=sys.stderr,
-                    )
-                    return msg
-                except Exception as e:
-                    print(
-                        "# [{0}] schema by id failed: {1}".format(
-                            cluster["name"], e
-                        ),
-                        file=sys.stderr,
-                    )
-                    return msg
-
-                if raw is None:
-                    return msg
-                data2 = try_parse(raw, avro_schema=sch2)
-                data2, wire_meta = _split_wire_meta(data2)
-                out = dict(msg)
-                out["value"] = data2
-                out["wire"] = wire_meta.get("wire") or out.get("wire")
-                if wire_meta.get("schema_id") is not None:
-                    out["schema_id"] = wire_meta.get("schema_id")
-                if isinstance(data2, dict) and data2.get("_error"):
-                    out["decode_error"] = data2.get("_error")
-                else:
-                    out["decode_error"] = None
-                    print(
-                        "# [{0}] retry by id={1} ok keys={2}".format(
-                            cluster["name"],
-                            use_id,
-                            list(data2.keys())[:12]
-                            if isinstance(data2, dict)
-                            else type(data2).__name__,
-                        ),
-                        file=sys.stderr,
-                    )
-                return out
-
-            read_kw_l = dict(
-                offset=pair.get("left_offset"),
-                from_end=left_from_end,
-                partition=int(pair.get("left_partition") or 0),
-                key=key,
-                field=field,
-                key_contains=bool(pair_key_contains),
-                max_messages=max_messages,
-            )
-            read_kw_r = dict(
-                offset=pair.get("right_offset"),
-                from_end=right_from_end,
-                partition=int(pair.get("right_partition") or 0),
-                key=key,
-                field=field,
-                key_contains=bool(pair_key_contains),
-                max_messages=max_messages,
-            )
-            msg_a = read_and_fix_schema(left, left_topic, sch_l, **read_kw_l)
-            msg_b = read_and_fix_schema(right, right_topic, sch_r, **read_kw_r)
-
-            sources = {
-                left["name"]: msg_a["value"],
-                right["name"]: msg_b["value"],
-            }  # type: Dict[str, Any]
-            unwrap_names = [left["name"], right["name"]]
-            offsets = {
-                left["name"]: {
-                    "topic": left_topic,
-                    "offset": msg_a["offset"],
-                    "partition": msg_a["partition"],
-                    "schema_id": msg_a.get("schema_id"),
-                    "peek_schema_id": msg_a.get("peek_schema_id"),
-                    "wire": msg_a.get("wire"),
-                    "hex": msg_a.get("value_hex"),
-                    "key": msg_a.get("key"),
-                    "decode_error": msg_a.get("decode_error"),
+        def try_kafka(cluster, topic, from_end, partition, offset):
+            src = cluster["name"]
+            unwrap_names.append(src)
+            if key is None and offset is None:
+                soft_fail(
+                    src,
+                    "нужен key или offset для [{0}]".format(name),
+                )
+                return
+            try:
+                sch = schema_for(cluster, topic)
+                msg = read_and_fix_schema(
+                    cluster,
+                    topic,
+                    sch,
+                    offset=offset,
+                    from_end=from_end,
+                    partition=int(partition or 0),
+                    key=key,
+                    field=field,
+                    key_contains=bool(pair_key_contains),
+                    max_messages=max_messages,
+                )
+                sources[src] = msg.get("value")
+                offsets[src] = {
+                    "topic": topic,
+                    "offset": msg.get("offset"),
+                    "partition": msg.get("partition"),
+                    "schema_id": msg.get("schema_id"),
+                    "peek_schema_id": msg.get("peek_schema_id"),
+                    "wire": msg.get("wire"),
+                    "hex": msg.get("value_hex"),
+                    "key": msg.get("key"),
+                    "decode_error": msg.get("decode_error"),
+                    "found": True,
                     "payload": (
-                        list(msg_a["value"].keys())[:20]
-                        if isinstance(msg_a.get("value"), dict)
-                        else type(msg_a.get("value")).__name__
+                        list(msg["value"].keys())[:20]
+                        if isinstance(msg.get("value"), dict)
+                        else type(msg.get("value")).__name__
                     ),
-                },
-                right["name"]: {
-                    "topic": right_topic,
-                    "offset": msg_b["offset"],
-                    "partition": msg_b["partition"],
-                    "schema_id": msg_b.get("schema_id"),
-                    "peek_schema_id": msg_b.get("peek_schema_id"),
-                    "wire": msg_b.get("wire"),
-                    "hex": msg_b.get("value_hex"),
-                    "key": msg_b.get("key"),
-                    "decode_error": msg_b.get("decode_error"),
-                    "payload": (
-                        list(msg_b["value"].keys())[:20]
-                        if isinstance(msg_b.get("value"), dict)
-                        else type(msg_b.get("value")).__name__
-                    ),
-                },
-            }  # type: Dict[str, Any]
-            oracle_meta = {}  # type: Dict[str, Any]
+                }
+            except (Exception, SystemExit) as e:
+                soft_fail(src, e)
+                offsets[src]["topic"] = topic
 
-            pair_oracle = pair.get("oracle")
-            if pair_oracle:
+        try_kafka(
+            left,
+            left_topic,
+            left_from_end,
+            pair.get("left_partition"),
+            pair.get("left_offset"),
+        )
+        try_kafka(
+            right,
+            right_topic,
+            right_from_end,
+            pair.get("right_partition"),
+            pair.get("right_offset"),
+        )
+
+        pair_oracle = pair.get("oracle")
+        if pair_oracle:
+            try:
                 if resolve_pair_oracle is None or fetch_pair_rows is None:
                     raise SystemExit("oracle_source не загружен")
                 resolved = resolve_pair_oracle(pair_oracle, global_oracle)
@@ -338,9 +317,7 @@ def main() -> int:
                     else -3
                 )
                 print(
-                    "# Oracle TIMESTAMP shift_hours={0} (DATE 00:00 без сдвига)".format(
-                        ts_shift
-                    ),
+                    "# Oracle TIMESTAMP shift_hours={0}".format(ts_shift),
                     file=sys.stderr,
                 )
                 sct_row, soh_row = fetch_pair_rows(
@@ -367,29 +344,75 @@ def main() -> int:
                     "prefix": resolved["prefix"],
                 }
                 if sct_row is None:
-                    print("# warning: нет строки в {0}".format(resolved["sct_fqn"]), file=sys.stderr)
+                    warnings.append(
+                        "{0}: нет строки".format(resolved["sct_fqn"])
+                    )
+                    print(
+                        "# warning: нет строки в {0}".format(
+                            resolved["sct_fqn"]
+                        ),
+                        file=sys.stderr,
+                    )
                 if soh_row is None:
-                    print("# warning: нет строки в {0}".format(resolved["soh_fqn"]), file=sys.stderr)
+                    warnings.append(
+                        "{0}: нет строки".format(resolved["soh_fqn"])
+                    )
+                    print(
+                        "# warning: нет строки в {0}".format(
+                            resolved["soh_fqn"]
+                        ),
+                        file=sys.stderr,
+                    )
+            except (Exception, SystemExit) as e:
+                # Oracle целиком не вышел — колонки всё равно как пустые (—)
+                try:
+                    resolved = resolve_pair_oracle(pair_oracle, global_oracle)  # type: ignore
+                    for nm, fqn in (
+                        (resolved["sct_name"], resolved["sct_fqn"]),
+                        (resolved["soh_name"], resolved["soh_fqn"]),
+                    ):
+                        soft_fail(nm, e)
+                        offsets[nm]["fqn"] = fqn
+                except (Exception, SystemExit):
+                    soft_fail("oracle", e)
 
-            payload_field = (
-                pair.get("payload_field") or cfg.get("payload_field") or "auto"
-            )
-            cmp_ = compare_sources(
-                sources,
-                payload_field=str(payload_field),
-                unwrap_names=unwrap_names,
-            )
-            item["сравнение"] = cmp_
-            item["смещения"] = offsets
-            item["oracle"] = oracle_meta
-            if cfg.get("show_values"):
-                item["значения"] = sources
-            print("# итог: {0}".format(cmp_["итог"]), file=sys.stderr)
-        except Exception as e:
-            item["ошибка"] = str(e)
-            print("# ошибка: {0}".format(e), file=sys.stderr)
-            if cfg.get("debug"):
-                traceback.print_exc()
+        found_any = any(v is not None for v in sources.values())
+        if not found_any:
+            item["ошибка"] = "; ".join(warnings) or "ни в одном источнике не найдено"
+            print("# ошибка: {0}".format(item["ошибка"]), file=sys.stderr)
+        else:
+            try:
+                payload_field = (
+                    pair.get("payload_field")
+                    or cfg.get("payload_field")
+                    or "auto"
+                )
+                cmp_ = compare_sources(
+                    sources,
+                    payload_field=str(payload_field),
+                    unwrap_names=unwrap_names,
+                )
+                item["сравнение"] = cmp_
+                item["смещения"] = offsets
+                item["oracle"] = oracle_meta
+                if warnings:
+                    item["предупреждения"] = warnings
+                if cfg.get("show_values"):
+                    item["значения"] = sources
+                print("# итог: {0}".format(cmp_["итог"]), file=sys.stderr)
+                if warnings:
+                    print(
+                        "# частично: {0}".format("; ".join(warnings)),
+                        file=sys.stderr,
+                    )
+            except Exception as e:
+                item["ошибка"] = str(e)
+                item["смещения"] = offsets
+                if warnings:
+                    item["предупреждения"] = warnings
+                print("# ошибка: {0}".format(e), file=sys.stderr)
+                if cfg.get("debug"):
+                    traceback.print_exc()
 
         results.append(item)
 
