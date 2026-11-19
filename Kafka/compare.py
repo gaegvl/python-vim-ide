@@ -59,20 +59,15 @@ def flatten(obj: Any, prefix: str = "") -> Dict[str, Any]:
 
 
 def is_empty(v: Any) -> bool:
+    """
+    Пусто для сравнения = только NULL/None.
+    Oracle '' (пустая строка) — НЕ то же самое, оставляем как различие.
+    """
     if v is None:
-        return True
-    if isinstance(v, str) and v.strip() == "":
         return True
     if isinstance(v, (list, dict)) and len(v) == 0:
         return True
     return False
-
-
-def empty_as_none(v: Any) -> Any:
-    """null / "" / пробелы → None (Oracle часто даёт '' вместо NULL)."""
-    if is_empty(v):
-        return None
-    return v
 
 
 def _in_epoch_year_range(seconds: float) -> bool:
@@ -253,12 +248,11 @@ def _is_numeric_scalar(v: Any) -> bool:
 def normalize_value(v: Any, field: Optional[str] = None) -> Any:
     """
     Для сравнения:
-    0) null / "" / пробелы → None
     1) datetime / ISO-строка → ISO UTC
     2) epoch sec|ms|µs|ns или Debezium days (*_dt → 20776)
     3) иначе числа → Decimal
+    null и '' не сливаются — это разные значения.
     """
-    v = empty_as_none(v)
     if v is None:
         return None
 
@@ -288,13 +282,8 @@ def normalize_value(v: Any, field: Optional[str] = None) -> Any:
 def values_equal(a: Any, b: Any, field: Optional[str] = None) -> bool:
     if a == b:
         return True
-    # null ≡ "" ≡ пробелы
-    if is_empty(a) and is_empty(b):
-        return True
     na, nb = normalize_value(a, field=field), normalize_value(b, field=field)
     if na == nb:
-        return True
-    if na is None and nb is None:
         return True
     if isinstance(na, Decimal) and isinstance(nb, Decimal):
         return na == nb
@@ -307,8 +296,13 @@ def values_equal(a: Any, b: Any, field: Optional[str] = None) -> bool:
 
 
 def _fmt(v: Any, field: Optional[str] = None) -> str:
-    if is_empty(v):
+    if v is None:
         return "∅ (пусто)"
+    # пустая строка Oracle — явно, чтобы не путать с NULL
+    if isinstance(v, str) and v == "":
+        return '""'
+    if isinstance(v, str) and v.strip() == "":
+        return repr(v)
     if isinstance(v, bool):
         return "да" if v else "нет"
     if isinstance(v, datetime):
