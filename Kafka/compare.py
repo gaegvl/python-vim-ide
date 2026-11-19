@@ -314,6 +314,178 @@ def unwrap_payload(obj: Any, mode: str = "auto") -> Tuple[Any, Optional[str]]:
     return obj, None
 
 
+def compare_sources(
+    sources: Dict[str, Any],
+    *,
+    payload_field: str = "auto",
+    unwrap_names: Optional[List[str]] = None,
+) -> dict:
+    """
+    Сравнение N источников (Kafka / Oracle …).
+
+    sources: упорядоченный dict {имя_столбца: value_dict_or_None}
+    unwrap_names: к кому применять Debezium after/before (по умолчанию — все).
+    """
+    if not sources:
+        raise SystemExit("compare_sources: пустой список источников")
+
+    names = list(sources.keys())
+    unwrap_set = set(unwrap_names) if unwrap_names is not None else set(names)
+
+    flats = {}  # type: Dict[str, Dict[str, Any]]
+    payload_meta = {"режим": payload_field}  # type: Dict[str, Any]
+    present = {}  # type: Dict[str, bool]
+
+    def is_meta(k: str) -> bool:
+        return k.startswith("_") or "._" in k
+
+    for name, raw in sources.items():
+        if raw is None:
+            flats[name] = {}
+            present[name] = False
+            payload_meta[name] = "нет строки"
+            continue
+        present[name] = True
+        if name in unwrap_set:
+            unwrapped, frm = unwrap_payload(raw, payload_field)
+            payload_meta[name] = frm or "full"
+        else:
+            unwrapped, frm = raw, None
+            payload_meta[name] = "full"
+        if not isinstance(unwrapped, dict):
+            unwrapped = {"value": unwrapped}
+        flats[name] = {
+            k: v for k, v in flatten(unwrapped).items() if not is_meta(k)
+        }
+
+    all_keys = sorted(set().union(*[set(f.keys()) for f in flats.values()]))
+    same_values = []  # type: List[str]
+    value_diff = []  # type: List[Dict[str, Any]]
+    all_fields = []  # type: List[Dict[str, Any]]
+    only_in = {n: [] for n in names}  # type: Dict[str, List[str]]
+
+    for k in all_keys:
+        vals = {}  # type: Dict[str, Any]
+        have = []  # type: List[str]
+        for n in names:
+            if k in flats[n]:
+                vals[n] = flats[n][k]
+                have.append(n)
+            else:
+                vals[n] = None
+
+        row = {
+            "поле": k,
+            "статус": "",
+            "комментарий": "",
+            "источники": have,
+        }  # type: Dict[str, Any]
+        for n in names:
+            va = vals[n]
+            row[n] = va
+            row["{0}_текст".format(n)] = _fmt(va) if n in have else "—"
+            row["{0}_нормализовано".format(n)] = (
+                normalize_value(va) if n in have else None
+            )
+
+        if len(have) == 1:
+            row["статус"] = "частично"
+            row["комментарий"] = "только в {0}".format(have[0])
+            only_in[have[0]].append(k)
+            all_fields.append(row)
+            continue
+
+        if len(have) < len(names):
+            missing = [n for n in names if n not in have]
+            # сравниваем значения там, где поле есть
+            filled = [(n, vals[n]) for n in have if not is_empty(vals[n])]
+            empty_all = all(is_empty(vals[n]) for n in have)
+            if empty_all:
+                row["статус"] = "частично"
+                row["комментарий"] = "нет в: {0}".format(", ".join(missing))
+            else:
+                base = filled[0][1] if filled else vals[have[0]]
+                equal = all(values_equal(base, vals[n]) for n, _ in filled[1:]) if len(filled) > 1 else True
+                if equal and len(filled) <= 1:
+                    row["статус"] = "частично"
+                    row["комментарий"] = "нет в: {0}".format(", ".join(missing))
+                elif equal:
+                    row["статус"] = "частично"
+                    row["комментарий"] = "совпадает где есть; нет в: {0}".format(
+                        ", ".join(missing)
+                    )
+                    same_values.append(k)
+                else:
+                    row["статус"] = "различие"
+                    row["комментарий"] = "нет в: {0}".format(", ".join(missing))
+                    value_diff.append(row)
+            all_fields.append(row)
+            continue
+
+        # поле во всех источниках
+        empty_flags = [is_empty(vals[n]) for n in names]
+        if all(empty_flags):
+            row["статус"] = "совпадает"
+            row["комментарий"] = "все пусты"
+            same_values.append(k)
+            all_fields.append(row)
+            continue
+
+        base_name = names[0]
+        # берём первое непустое как эталон среди всех
+        ref = None
+        for n in names:
+            if not is_empty(vals[n]):
+                ref = vals[n]
+                break
+        equal = True
+        for n in names:
+            if is_empty(vals[n]) and not is_empty(ref):
+                equal = False
+                break
+            if not is_empty(vals[n]) and not values_equal(ref, vals[n]):
+                equal = False
+                break
+        if equal:
+            row["статус"] = "совпадает"
+            same_values.append(k)
+        else:
+            row["статус"] = "различие"
+            value_diff.append(row)
+        all_fields.append(row)
+
+    ok = all(r.get("статус") == "совпадает" for r in all_fields)
+    summary = {
+        "всего_полей": len(all_fields),
+        "значения_совпали": len(same_values),
+        "различия_значений": len(value_diff),
+        "источники": names,
+    }  # type: Dict[str, Any]
+    for n in names:
+        summary["полей_только_в_" + n] = len(only_in[n])
+
+    # обратная совместимость для 2 колонок
+    names_map = {}  # type: Dict[str, str]
+    if len(names) >= 1:
+        names_map["левый"] = names[0]
+    if len(names) >= 2:
+        names_map["правый"] = names[1]
+    for n in names:
+        names_map[n] = n
+
+    return {
+        "итог": "совпадает" if ok else "есть различия",
+        "payload": payload_meta,
+        "сводка": summary,
+        "одинаковые_значения": same_values,
+        "различия_значений": value_diff,
+        "все_поля": all_fields,
+        "имена": names_map,
+        "столбцы": names,
+        "наличие": present,
+    }
+
+
 def compare_messages(
     a: Any,
     b: Any,
@@ -322,118 +494,7 @@ def compare_messages(
     *,
     payload_field: str = "auto",
 ) -> dict:
-    a_unwrapped, a_from = unwrap_payload(a, payload_field)
-    b_unwrapped, b_from = unwrap_payload(b, payload_field)
-    fa, fb = flatten(a_unwrapped), flatten(b_unwrapped)
-    # служебные ключи decode не считаем бизнес-полями в «только слева», но покажем в meta
-    def is_meta(k: str) -> bool:
-        return k.startswith("_") or "._" in k
-
-    keys_a = {k for k in fa if not is_meta(k)}
-    keys_b = {k for k in fb if not is_meta(k)}
-
-    only_a = sorted(keys_a - keys_b)
-    only_b = sorted(keys_b - keys_a)
-    both = sorted(keys_a & keys_b)
-
-    both_filled = []
-    only_a_filled = []
-    only_b_filled = []
-    both_empty = []
-    same_values = []
-    value_diff = []
-    all_fields = []  # type: List[Dict[str, Any]]
-
-    def row(
-        field: str,
-        status: str,
-        va: Any = None,
-        vb: Any = None,
-        comment: str = "",
-    ) -> Dict[str, Any]:
-        return {
-            "поле": field,
-            "статус": status,
-            name_a: va,
-            name_b: vb,
-            f"{name_a}_текст": _fmt(va),
-            f"{name_b}_текст": _fmt(vb),
-            f"{name_a}_нормализовано": normalize_value(va),
-            f"{name_b}_нормализовано": normalize_value(vb),
-            "комментарий": comment,
-        }
-
-    for k in only_a:
-        va = fa[k]
-        all_fields.append(
-            row(k, "только_слева", va, None, f"только в {name_a}")
-        )
-    for k in only_b:
-        vb = fb[k]
-        all_fields.append(
-            row(k, "только_справа", None, vb, f"только в {name_b}")
-        )
-
-    for k in both:
-        va, vb = fa[k], fb[k]
-        ea, eb = is_empty(va), is_empty(vb)
-        if not ea and not eb:
-            both_filled.append(k)
-            if values_equal(va, vb):
-                same_values.append(k)
-                all_fields.append(row(k, "совпадает", va, vb))
-            else:
-                item = row(k, "различие", va, vb)
-                value_diff.append(item)
-                all_fields.append(item)
-        elif not ea and eb:
-            only_a_filled.append(k)
-            item = row(k, "различие", va, vb, f"заполнено только в {name_a}")
-            value_diff.append(item)
-            all_fields.append(item)
-        elif ea and not eb:
-            only_b_filled.append(k)
-            item = row(k, "различие", va, vb, f"заполнено только в {name_b}")
-            value_diff.append(item)
-            all_fields.append(item)
-        else:
-            both_empty.append(k)
-            all_fields.append(row(k, "совпадает", va, vb, "оба пусты"))
-
-    # стабильный порядок: имя поля
-    all_fields.sort(key=lambda r: str(r.get("поле") or ""))
-
-    ok = len(only_a) == 0 and len(only_b) == 0 and len(value_diff) == 0
-
-    return {
-        "итог": "совпадает" if ok else "есть различия",
-        "payload": {
-            name_a: a_from or "full",
-            name_b: b_from or "full",
-            "режим": payload_field,
-        },
-        "сводка": {
-            "полей_только_в_" + name_a: len(only_a),
-            "полей_только_в_" + name_b: len(only_b),
-            "полей_в_обоих": len(both),
-            "значения_совпали": len(same_values),
-            "различия_значений": len(value_diff),
-            "заполнено_в_обоих": len(both_filled),
-            "заполнено_только_" + name_a: len(only_a_filled),
-            "заполнено_только_" + name_b: len(only_b_filled),
-            "оба_пусты": len(both_empty),
-            "всего_полей": len(all_fields),
-        },
-        "поля_только_в_" + name_a: only_a,
-        "поля_только_в_" + name_b: only_b,
-        "заполняемость": {
-            "заполнено_в_обоих": both_filled,
-            "заполнено_только_" + name_a: only_a_filled,
-            "заполнено_только_" + name_b: only_b_filled,
-            "оба_пусты": both_empty,
-        },
-        "одинаковые_значения": same_values,
-        "различия_значений": value_diff,
-        "все_поля": all_fields,
-        "имена": {"левый": name_a, "правый": name_b},
-    }
+    return compare_sources(
+        {name_a: a, name_b: b},
+        payload_field=payload_field,
+    )
