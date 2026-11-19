@@ -86,23 +86,36 @@ def schema_key_matches(msg_key: Any, wanted: str) -> bool:
     return wanted in text
 
 
+def _catalog_entry_name(entry: Any) -> str:
+    """schemaName из записи каталога; строка/не-dict — пусто."""
+    if isinstance(entry, dict):
+        return str(entry.get("schemaName") or "")
+    return ""
+
+
 def load_schema_from_catalog_file(catalog_path: str, topic: str):
     """Вспомогательный путь: JSON-файл каталога."""
     with open(catalog_path, "r", encoding="utf-8") as f:
         catalog = json.load(f)
+
+    if not isinstance(catalog, dict):
+        raise SystemExit(
+            f"Каталог {catalog_path} должен быть JSON-объектом "
+            f"(ключ = топик), получено {type(catalog).__name__}"
+        )
 
     entry = None
     if topic in catalog:
         entry = catalog[topic]
     else:
         for k, v in catalog.items():
-            name = (v or {}).get("schemaName") or ""
+            name = _catalog_entry_name(v)
             if k == topic or name == topic or topic.endswith(k) or k.endswith(topic):
                 entry = v
                 break
             # dbzm.* / csmr_*
             nt = topic.replace("dbzm.", "").replace("csmr_", "")
-            nk = k.replace("dbzm.", "").replace("csmr_", "")
+            nk = str(k).replace("dbzm.", "").replace("csmr_", "")
             nn = name.replace("dbzm.", "").replace("csmr_", "")
             if nt == nk or nt == nn:
                 entry = v
