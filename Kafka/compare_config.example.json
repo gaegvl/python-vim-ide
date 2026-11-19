@@ -26,7 +26,7 @@
       "keystore_pass": "pass",
       "schema_topic": null,
       "schema_partition": 0,
-      "schema_catalog": "C:\\\\path\\\\schemas_610_5.json",
+      "schema_catalog": "C:\\\\path\\\\schemas_catalog.example.json",
       "schema_key": "rkk.customer_service.customer_form"
     }
   },

@@ -1,0 +1,20 @@
+[
+  {
+    "subject": "rkk.customer_service.customer_form-value",
+    "version": 15,
+    "id": 3974,
+    "schema": "{\"type\":\"record\",\"name\":\"Envelope\",\"namespace\":\"rkk.customer_service\",\"fields\":[{\"name\":\"before\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"after\",\"type\":[\"null\",\"string\"],\"default\":null}]}"
+  },
+  {
+    "subject": "rkk.customercheck_service.stoplist_conclusion-value",
+    "version": 3,
+    "id": 4102,
+    "schema": "{\"type\":\"record\",\"name\":\"Envelope\",\"namespace\":\"rkk.customercheck_service\",\"fields\":[{\"name\":\"before\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"after\",\"type\":[\"null\",\"string\"],\"default\":null}]}"
+  },
+  {
+    "subject": "dbzm.rkk.customer_service.csmr_customer_form-value",
+    "version": 8,
+    "id": 3861,
+    "schema": "{\"type\":\"record\",\"name\":\"Envelope\",\"namespace\":\"ods.delta\",\"fields\":[{\"name\":\"before\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"after\",\"type\":[\"null\",\"string\"],\"default\":null}]}"
+  }
+]
