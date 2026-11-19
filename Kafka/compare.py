@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -38,11 +40,102 @@ def is_empty(v: Any) -> bool:
     return False
 
 
+def _epoch_to_datetime(n: int) -> datetime | None:
+    """Seconds / ms / µs / ns since epoch → UTC datetime."""
+    # пороги по порядку величины (примерно год 2001–2286)
+    abs_n = abs(n)
+    try:
+        if abs_n < 1_000_000_000_000:  # < 1e12 → секунды
+            ts = n
+            us = 0
+        elif abs_n < 1_000_000_000_000_000:  # < 1e15 → миллисекунды
+            ts, us = divmod(n, 1_000)
+            us *= 1_000
+        elif abs_n < 1_000_000_000_000_000_000:  # < 1e18 → микросекунды
+            ts, us = divmod(n, 1_000_000)
+        else:  # наносекунды
+            ts, rem = divmod(n, 1_000_000_000)
+            us = rem // 1_000
+        return datetime.fromtimestamp(ts, tz=timezone.utc).replace(microsecond=us)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def parse_datetime(v: Any) -> datetime | None:
+    """ISO-дата / epoch (int|str) / datetime → UTC datetime."""
+    if v is None or isinstance(v, bool):
+        return None
+    if isinstance(v, datetime):
+        if v.tzinfo is None:
+            return v.replace(tzinfo=timezone.utc)
+        return v.astimezone(timezone.utc)
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        if isinstance(v, float):
+            if not v.is_integer():
+                # unix seconds with fraction
+                try:
+                    return datetime.fromtimestamp(v, tz=timezone.utc)
+                except (OverflowError, OSError, ValueError):
+                    return None
+            v = int(v)
+        return _epoch_to_datetime(v)
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return None
+        if re.fullmatch(r"-?\d+", s):
+            try:
+                return _epoch_to_datetime(int(s))
+            except ValueError:
+                return None
+        # 2026-11-19 04:53:28.858000+00:00 / ISO
+        s2 = s.replace("Z", "+00:00")
+        if " " in s2 and "T" not in s2[:20]:
+            s2 = s2.replace(" ", "T", 1)
+        try:
+            dt = datetime.fromisoformat(s2)
+        except ValueError:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    return None
+
+
+def format_datetime(dt: datetime) -> str:
+    """Единый читаемый вид UTC."""
+    return dt.astimezone(timezone.utc).isoformat(sep=" ", timespec="microseconds")
+
+
+def normalize_value(v: Any) -> Any:
+    """Для сравнения: даты → единая ISO-строка UTC, иначе как есть."""
+    dt = parse_datetime(v)
+    if dt is not None:
+        return format_datetime(dt)
+    return v
+
+
+def values_equal(a: Any, b: Any) -> bool:
+    if a == b:
+        return True
+    na, nb = normalize_value(a), normalize_value(b)
+    return na == nb
+
+
 def _fmt(v: Any) -> str:
     if v is None:
         return "∅ (пусто)"
     if isinstance(v, bool):
         return "да" if v else "нет"
+    dt = parse_datetime(v)
+    if dt is not None:
+        # показываем читаемо + исходник, если это был epoch
+        nice = format_datetime(dt)
+        if isinstance(v, (int, float)) or (isinstance(v, str) and re.fullmatch(r"-?\d+", v.strip())):
+            return f"{nice}  (epoch {v})"
+        if nice != str(v).strip().replace("T", " "):
+            return nice
+        return nice
     if isinstance(v, (dict, list)):
         return json.dumps(v, ensure_ascii=False, default=str)
     return str(v)
@@ -139,7 +232,7 @@ def compare_messages(
         ea, eb = is_empty(va), is_empty(vb)
         if not ea and not eb:
             both_filled.append(k)
-            if va == vb:
+            if values_equal(va, vb):
                 same_values.append(k)
             else:
                 value_diff.append(
@@ -149,6 +242,8 @@ def compare_messages(
                         name_b: vb,
                         f"{name_a}_текст": _fmt(va),
                         f"{name_b}_текст": _fmt(vb),
+                        f"{name_a}_нормализовано": normalize_value(va),
+                        f"{name_b}_нормализовано": normalize_value(vb),
                     }
                 )
         elif not ea and eb:
