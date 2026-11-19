@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
+from uuid import UUID
 
 from kafka import KafkaConsumer, TopicPartition
 
@@ -16,6 +18,9 @@ except ImportError:
     peek_confluent_schema_id = None  # type: ignore
 
 _WIRE_META_KEYS = ("__wire", "__schema_id", "__hex")
+_UUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
 
 
 def _split_wire_meta(data: Any) -> Tuple[Any, Dict[str, Any]]:
@@ -61,58 +66,130 @@ def try_parse(
 
 
 def key_text(msg_key: Any) -> str:
+    """Читаемое представление key; UUID вытаскиваем если есть."""
     if msg_key is None:
         return ""
-    if isinstance(msg_key, bytes):
-        # Confluent: 0x00 + schema_id(4) + payload — UUID часто внутри payload
-        return msg_key.decode("latin-1", errors="ignore")
+    raw = bytes(msg_key) if isinstance(msg_key, (bytes, bytearray)) else None
+    if raw is not None:
+        # ASCII UUID внутри Confluent key (header + avro string)
+        try:
+            latin = raw.decode("latin-1", errors="ignore")
+        except Exception:
+            latin = ""
+        m = _UUID_RE.search(latin)
+        if m:
+            return m.group(0)
+        # binary UUID (16 bytes) после header/длины
+        for start in (0, 5, 6):
+            if len(raw) >= start + 16:
+                chunk = raw[start : start + 16]
+                try:
+                    return str(UUID(bytes=chunk))
+                except ValueError:
+                    pass
+        return "key[{0}b] hex[{1}]".format(
+            len(raw),
+            " ".join("{:02x}".format(b) for b in raw[:12]),
+        )
     return str(msg_key)
 
 
-def _key_blobs(msg_key: Any):
-    """Варианты представления key для поиска вхождения UUID."""
-    blobs = []
+def _needle_variants(target: str) -> List[bytes]:
+    """
+    Чем искать UUID в бинарном key (как Offset Explorer):
+    - строка с дефисами / без
+    - 16 сырых байт UUID
+    """
+    out = []  # type: List[bytes]
+    s = str(target).strip()
+    if not s:
+        return out
+
+    def add(b: bytes):
+        if b and b not in out:
+            out.append(b)
+
+    add(s.encode("utf-8"))
+    add(s.encode("latin-1", errors="ignore"))
+    compact = s.replace("-", "").replace("{", "").replace("}", "")
+    if compact != s:
+        add(compact.encode("utf-8"))
+        add(compact.lower().encode("utf-8"))
+        add(compact.upper().encode("utf-8"))
+    try:
+        u = UUID(s)
+    except ValueError:
+        try:
+            u = UUID(compact) if len(compact) == 32 else None
+        except ValueError:
+            u = None
+    if u is not None:
+        add(str(u).encode("utf-8"))
+        add(str(u).replace("-", "").encode("utf-8"))
+        add(u.bytes)  # RFC binary
+        add(u.bytes_le)
+    return out
+
+
+def _key_blobs(msg_key: Any) -> List[bytes]:
+    """Срезы key, где может лежать UUID (raw / без Confluent header / без avro length)."""
+    blobs = []  # type: List[bytes]
     if msg_key is None:
         return blobs
+
     if isinstance(msg_key, (bytes, bytearray)):
         raw = bytes(msg_key)
-        blobs.append(raw)
-        if len(raw) >= 5 and raw[0] == 0:
-            blobs.append(raw[5:])  # без Confluent header
-        blobs.append(raw.decode("latin-1", errors="ignore"))
-        blobs.append(raw.decode("utf-8", errors="ignore"))
     else:
+        # на случай если кто-то снова включит str-deserializer
         text = str(msg_key)
-        blobs.append(text)
-        # если пришло как str с «битыми» символами префикса — всё равно ищем UUID
+        raw = text.encode("latin-1", errors="ignore")
+        blobs.append(text.encode("utf-8", errors="ignore"))
+
+    blobs.append(raw)
+    if len(raw) >= 5 and raw[0] == 0:
+        payload = raw[5:]
+        blobs.append(payload)
+        # Avro string: zigzag length (обычно 1 байт 0x48=36) + uuid
+        if payload:
+            blobs.append(payload[1:])
+        if len(payload) >= 2:
+            blobs.append(payload[2:])
     return blobs
 
 
 def matches_key(msg_key: Any, target: str, *, contains: bool = True) -> bool:
     """
-    contains=True (по умолчанию): ищем вхождение target в key
-    (нужно для Confluent Avro key = 6 байт + UUID).
+    contains=True (по умолчанию): ищем UUID/строку ВНУТРИ key.
+    Confluent Avro key = magic(1)+schema_id(4)+avro(string UUID) — как в Offset Explorer.
     """
     if target is None or target == "":
         return False
-    target_s = str(target)
-    target_b = target_s.encode("utf-8")
+    needles = _needle_variants(str(target))
+    if not needles:
+        return False
+    blobs = _key_blobs(msg_key)
+    target_s = str(target).strip()
 
-    for blob in _key_blobs(msg_key):
+    for blob in blobs:
         if contains:
-            if isinstance(blob, (bytes, bytearray)):
-                if target_b in blob or target_s.encode("latin-1", errors="ignore") in blob:
+            for n in needles:
+                if n in blob:
                     return True
-            else:
-                if target_s in blob:
+            # текстовый fallback
+            try:
+                if target_s in blob.decode("latin-1", errors="ignore"):
                     return True
+            except Exception:
+                pass
         else:
-            if isinstance(blob, (bytes, bytearray)):
-                if blob == target_b or blob.endswith(target_b):
+            for n in needles:
+                if blob == n or blob.endswith(n):
                     return True
-            else:
-                if blob == target_s or blob.endswith(target_s) or target_s in blob:
-                    return True
+            if target_s and (
+                blob == target_s.encode("utf-8")
+                or blob.endswith(target_s.encode("utf-8"))
+            ):
+                return True
     return False
 
 
@@ -169,7 +246,8 @@ def read_from_cluster(
     conf = build_ssl_conf(cluster["bootstrap"], ca, cert, keyfile)
     consumer = KafkaConsumer(
         **conf,
-        key_deserializer=safe_decode,
+        # raw bytes: UTF-8 deserializer ломает поиск UUID в Confluent key
+        key_deserializer=lambda v: v,
         value_deserializer=lambda v: v,
     )
     tp = TopicPartition(topic, partition)
