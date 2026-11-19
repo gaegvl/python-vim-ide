@@ -83,13 +83,16 @@ def _render_html(payload: dict) -> str:
     tr.row-match td {{ background: #e8f5e9; }}
     tr.row-diff td {{ background: #ffebee; }}
     tr.row-partial td {{ background: #fff8e1; }}
+    tr.row-service td {{ background: #eceff1; color: #546e7a; }}
     .status-match {{ color: #1b5e20; font-weight: 600; }}
     .status-diff {{ color: #b71c1c; font-weight: 600; }}
     .status-partial {{ color: #e65100; font-weight: 600; }}
+    .status-service {{ color: #546e7a; font-weight: 600; }}
     .legend span {{ display: inline-block; padding: 2px 8px; margin-right: 8px; border-radius: 4px; font-size: 13px; }}
     .leg-match {{ background: #e8f5e9; }}
     .leg-diff {{ background: #ffebee; }}
     .leg-partial {{ background: #fff8e1; }}
+    .leg-service {{ background: #eceff1; }}
     .table-wrap {{ max-height: 70vh; overflow: auto; border: 1px solid #e0e0e0; border-radius: 8px; }}
   </style>
 </head>
@@ -116,6 +119,8 @@ def _status_label(status: str) -> Tuple[str, str, str]:
         return "row-match", "совпадает", "status-match"
     if status == "различие":
         return "row-diff", "различие", "status-diff"
+    if status == "служебное":
+        return "row-service", "служебное", "status-service"
     if status in ("частично", "только_слева", "только_справа"):
         return "row-partial", status.replace("_", " "), "status-partial"
     return "", status or "", ""
@@ -228,6 +233,7 @@ def _render_pair(idx: int, pair: dict) -> str:
     <span class="leg-match">совпадает</span>
     <span class="leg-diff">различие</span>
     <span class="leg-partial">частично</span>
+    <span class="leg-service">служебное (ods)</span>
   </p>
   <h3>Все поля</h3>
   <div class="table-wrap">

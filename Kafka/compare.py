@@ -303,15 +303,25 @@ def unwrap_payload(obj: Any, mode: str = "auto") -> Tuple[Any, Optional[str]]:
             raise SystemExit("payload_field=before, но before отсутствует или не object")
         return got, "before"
 
-    # auto: если after — object, сравниваем его (типичный Debezium Envelope).
-    # Не требуем op/source: иначе after.* остаётся в отчёте как отдельные поля.
-    after = take("after")
-    if after is not None:
-        return after, "after"
+    # auto: бизнес-payload из типичных обёрток
+    for wrap in ("after", "Value", "value", "payload", "data"):
+        got = take(wrap)
+        if got is not None:
+            return got, wrap
     before = take("before")
     if before is not None:
         return before, "before"
     return obj, None
+
+
+def is_service_field(field: str) -> bool:
+    """Служебные ods$/ods_ — показываем, но не сравниваем."""
+    if not field:
+        return False
+    for part in str(field).split("."):
+        if part.startswith("ods$") or part.startswith("ods_"):
+            return True
+    return False
 
 
 def compare_sources(
@@ -363,6 +373,7 @@ def compare_sources(
     value_diff = []  # type: List[Dict[str, Any]]
     all_fields = []  # type: List[Dict[str, Any]]
     only_in = {n: [] for n in names}  # type: Dict[str, List[str]]
+    service_fields = []  # type: List[str]
 
     for k in all_keys:
         vals = {}  # type: Dict[str, Any]
@@ -387,6 +398,13 @@ def compare_sources(
             row["{0}_нормализовано".format(n)] = (
                 normalize_value(va) if n in have else None
             )
+
+        if is_service_field(k):
+            row["статус"] = "служебное"
+            row["комментарий"] = "ods$/ods_ — не сравнивается"
+            service_fields.append(k)
+            all_fields.append(row)
+            continue
 
         if len(have) == 1:
             row["статус"] = "частично"
@@ -454,11 +472,14 @@ def compare_sources(
             value_diff.append(row)
         all_fields.append(row)
 
-    ok = all(r.get("статус") == "совпадает" for r in all_fields)
+    ok = all(
+        r.get("статус") in ("совпадает", "служебное") for r in all_fields
+    )
     summary = {
         "всего_полей": len(all_fields),
         "значения_совпали": len(same_values),
         "различия_значений": len(value_diff),
+        "служебных_полей": len(service_fields),
         "источники": names,
     }  # type: Dict[str, Any]
     for n in names:

@@ -53,7 +53,10 @@ def main() -> int:
     right.setdefault("name", "правый")
 
     global_key = cfg.get("key")
+    # по умолчанию — вхождение в key (Confluent Avro key = префикс + UUID)
     key_contains = bool(cfg.get("key_contains", True))
+    if cfg.get("key_contains") is None:
+        key_contains = True
     max_messages = int(cfg.get("max_messages") or 500_000)
     global_from_end = cfg.get("from_end")
     output = cfg.get("output") or "compare_report.html"

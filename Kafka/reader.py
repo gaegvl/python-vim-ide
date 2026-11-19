@@ -46,17 +46,56 @@ def key_text(msg_key: Any) -> str:
     if msg_key is None:
         return ""
     if isinstance(msg_key, bytes):
+        # Confluent: 0x00 + schema_id(4) + payload — UUID часто внутри payload
         return msg_key.decode("latin-1", errors="ignore")
     return str(msg_key)
 
 
-def matches_key(msg_key: Any, target: str, *, contains: bool) -> bool:
-    text = key_text(msg_key)
-    if not text:
+def _key_blobs(msg_key: Any):
+    """Варианты представления key для поиска вхождения UUID."""
+    blobs = []
+    if msg_key is None:
+        return blobs
+    if isinstance(msg_key, (bytes, bytearray)):
+        raw = bytes(msg_key)
+        blobs.append(raw)
+        if len(raw) >= 5 and raw[0] == 0:
+            blobs.append(raw[5:])  # без Confluent header
+        blobs.append(raw.decode("latin-1", errors="ignore"))
+        blobs.append(raw.decode("utf-8", errors="ignore"))
+    else:
+        text = str(msg_key)
+        blobs.append(text)
+        # если пришло как str с «битыми» символами префикса — всё равно ищем UUID
+    return blobs
+
+
+def matches_key(msg_key: Any, target: str, *, contains: bool = True) -> bool:
+    """
+    contains=True (по умолчанию): ищем вхождение target в key
+    (нужно для Confluent Avro key = 6 байт + UUID).
+    """
+    if target is None or target == "":
         return False
-    if contains:
-        return target in text
-    return text == target or text.endswith(target) or target in text
+    target_s = str(target)
+    target_b = target_s.encode("utf-8")
+
+    for blob in _key_blobs(msg_key):
+        if contains:
+            if isinstance(blob, (bytes, bytearray)):
+                if target_b in blob or target_s.encode("latin-1", errors="ignore") in blob:
+                    return True
+            else:
+                if target_s in blob:
+                    return True
+        else:
+            if isinstance(blob, (bytes, bytearray)):
+                if blob == target_b or blob.endswith(target_b):
+                    return True
+            else:
+                if blob == target_s or blob.endswith(target_s) or target_s in blob:
+                    return True
+    return False
 
 
 def resolve_start_offset(
@@ -91,7 +130,7 @@ def read_from_cluster(
     partition: int = 0,
     key: Optional[str] = None,
     field: str = "task_id",
-    key_contains: bool = False,
+    key_contains: bool = True,
     max_messages: int = 500_000,
     with_meta: bool = True,
     avro_schema=None,
