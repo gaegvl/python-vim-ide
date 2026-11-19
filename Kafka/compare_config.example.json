@@ -19,8 +19,7 @@
       "keystore_pass": "pass",
       "schema_topic": "ods.schemas",
       "schema_partition": 0,
-      "schema_catalog": null,
-      "schema_key": null
+      "schema_catalog": null
     },
     "right": {
       "name": "610_5",
@@ -31,8 +30,7 @@
       "keystore_pass": "pass",
       "schema_topic": null,
       "schema_partition": 0,
-      "schema_catalog": "C:\\\\path\\\\schemas_catalog.example.json",
-      "schema_key": null
+      "schema_catalog": "C:\\\\path\\\\schemas_catalog.example.json"
     }
   },
   "pairs": [

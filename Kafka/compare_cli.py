@@ -66,18 +66,22 @@ def main() -> int:
     oracle_conn = None
 
     def schema_for(cluster: dict, topic: str):
+        # schema_key всегда = topic пары (left_topic / right_topic), не из кластера
         cache_key = (
             cluster["name"],
             topic,
-            cluster.get("schema_key"),
             cluster.get("schema_catalog"),
             cluster.get("schema_topic"),
         )
         if cache_key not in schema_cache:
-            print("# схема {0} / {1}".format(cluster["name"], topic), file=sys.stderr)
+            print(
+                "# схема {0} / topic={1} (schema_key=topic)".format(
+                    cluster["name"], topic
+                ),
+                file=sys.stderr,
+            )
             c = dict(cluster)
-            if not c.get("schema_key"):
-                c["schema_key"] = topic
+            c["schema_key"] = topic
             schema_cache[cache_key] = resolve_schema(c, topic)
         return schema_cache[cache_key]
 
