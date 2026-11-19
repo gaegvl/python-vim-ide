@@ -8,12 +8,15 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 
-# Epoch только в «разумном» диапазоне лет (иначе коды вроде call_cd=10600003
-# ошибочно превращаются в даты 1970-05-...).
-_EPOCH_YEAR_MIN = 2000
+# Epoch в диапазоне лет 1920–2100.
+# Малые положительные «секунды» (0 … 1e9, т.е. 1970–2001) не считаем epoch:
+# туда попадают коды вроде call_cd=10600003 (decimal/double), не даты.
+# До 1970 — отрицательный unix time; с ~2001 — seconds >= 1e9; ms/µs/ns — как обычно.
+_EPOCH_YEAR_MIN = 1920
 _EPOCH_YEAR_MAX = 2100
 _EPOCH_SEC_MIN = int(datetime(_EPOCH_YEAR_MIN, 1, 1, tzinfo=timezone.utc).timestamp())
 _EPOCH_SEC_MAX = int(datetime(_EPOCH_YEAR_MAX, 1, 1, tzinfo=timezone.utc).timestamp())
+_EPOCH_SEC_AMBIGUOUS_MAX = 1_000_000_000  # ~2001-09-09
 
 
 def flatten(obj: Any, prefix: str = "") -> Dict[str, Any]:
@@ -56,30 +59,38 @@ def _in_epoch_year_range(seconds: float) -> bool:
 def _epoch_to_datetime(n: Union[int, float]) -> Optional[datetime]:
     """
     Seconds / ms / µs / ns since epoch → UTC datetime.
-    Только если результат попадает в 2000–2100 (не путаем с кодами/decimal).
+    Годы 1920–2100. Секунды 0…1e9 (1970–2001) отбрасываем — это коды, не даты.
     """
     try:
         x = float(n)
     except (TypeError, ValueError):
         return None
     abs_n = abs(x)
+    unit = "seconds"
     try:
         if abs_n < 1_000_000_000_000:  # < 1e12 → секунды
             seconds = x
             us = int(round((x - int(x)) * 1_000_000)) if not float(x).is_integer() else 0
             ts = int(x)
+            unit = "seconds"
         elif abs_n < 1_000_000_000_000_000:  # ms
             ts, rem = divmod(int(x), 1_000)
             seconds = ts
             us = rem * 1_000
+            unit = "ms"
         elif abs_n < 1_000_000_000_000_000_000:  # µs
             ts, us = divmod(int(x), 1_000_000)
             seconds = ts
+            unit = "us"
         else:  # ns
             ts, rem = divmod(int(x), 1_000_000_000)
             seconds = ts
             us = rem // 1_000
+            unit = "ns"
         if not _in_epoch_year_range(seconds):
+            return None
+        # call_cd=10600003 и т.п. — не timestamp
+        if unit == "seconds" and 0 <= seconds < _EPOCH_SEC_AMBIGUOUS_MAX:
             return None
         us = max(0, min(999999, us))
         return datetime.fromtimestamp(ts, tz=timezone.utc).replace(microsecond=us)
@@ -88,7 +99,7 @@ def _epoch_to_datetime(n: Union[int, float]) -> Optional[datetime]:
 
 
 def parse_datetime(v: Any) -> Optional[datetime]:
-    """ISO-дата / epoch (в диапазоне 2000–2100) / datetime → UTC datetime."""
+    """ISO-дата / epoch (1920–2100) / datetime → UTC datetime."""
     if v is None or isinstance(v, bool):
         return None
     if isinstance(v, datetime):
@@ -178,7 +189,7 @@ def normalize_value(v: Any) -> Any:
     """
     Для сравнения:
     1) datetime / ISO-строка → ISO UTC
-    2) epoch только если число даёт год 2000–2100
+    2) epoch если число даёт год 1920–2100 (малые коды 1970–2001 — не epoch)
     3) иначе числа (decimal/double) → Decimal
     """
     if isinstance(v, datetime):
