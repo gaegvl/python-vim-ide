@@ -4,18 +4,18 @@ from __future__ import annotations
 import io
 import json
 import sys
-from typing import Any
+from typing import Any, Optional, Tuple, Union
 
 from fastavro import schemaless_reader
 
 
-def strip_confluent_header(raw: bytes) -> tuple[bytes, int | None]:
+def strip_confluent_header(raw: bytes) -> Tuple[bytes, Optional[int]]:
     if len(raw) >= 5 and raw[0] == 0:
         return raw[5:], int.from_bytes(raw[1:5], "big")
     return raw, None
 
 
-def decode_avro_value(raw: bytes | str | None, schema) -> Any:
+def decode_avro_value(raw: Optional[Union[bytes, str]], schema) -> Any:
     if raw is None:
         return None
     if isinstance(raw, str):

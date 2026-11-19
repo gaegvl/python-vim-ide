@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any
+from typing import Any, Optional, Tuple, Union
 
 from kafka import KafkaConsumer, TopicPartition
 
@@ -14,7 +14,7 @@ except ImportError:
     decode_avro_value = None
 
 
-def safe_decode(v: bytes | str | None) -> str | bytes | None:
+def safe_decode(v: Optional[Union[bytes, str]]) -> Optional[Union[str, bytes]]:
     if v is None:
         return None
     if isinstance(v, str):
@@ -26,7 +26,7 @@ def safe_decode(v: bytes | str | None) -> str | bytes | None:
 
 
 def try_parse(
-    value: str | bytes | None,
+    value: Optional[Union[str, bytes]],
     *,
     avro_schema=None,
 ) -> Any:
@@ -63,9 +63,9 @@ def resolve_start_offset(
     consumer: KafkaConsumer,
     tp: TopicPartition,
     *,
-    offset: int | None,
-    from_end: int | None,
-) -> tuple[int, int, int]:
+    offset: Optional[int],
+    from_end: Optional[int],
+) -> Tuple[int, int, int]:
     begin = consumer.beginning_offsets([tp])[tp]
     end = consumer.end_offsets([tp])[tp]
 
@@ -86,10 +86,10 @@ def read_from_cluster(
     cluster: dict,
     *,
     topic: str,
-    offset: int | None = None,
-    from_end: int | None = None,
+    offset: Optional[int] = None,
+    from_end: Optional[int] = None,
     partition: int = 0,
-    key: str | None = None,
+    key: Optional[str] = None,
     field: str = "task_id",
     key_contains: bool = False,
     max_messages: int = 500_000,

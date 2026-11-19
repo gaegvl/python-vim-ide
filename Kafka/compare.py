@@ -4,11 +4,11 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 
-def flatten(obj: Any, prefix: str = "") -> dict[str, Any]:
-    out: dict[str, Any] = {}
+def flatten(obj: Any, prefix: str = "") -> Dict[str, Any]:
+    out = {}  # type: Dict[str, Any]
     if isinstance(obj, dict):
         if not obj and prefix:
             out[prefix] = obj
@@ -40,7 +40,7 @@ def is_empty(v: Any) -> bool:
     return False
 
 
-def _epoch_to_datetime(n: int) -> datetime | None:
+def _epoch_to_datetime(n: int) -> Optional[datetime]:
     """Seconds / ms / µs / ns since epoch → UTC datetime."""
     # пороги по порядку величины (примерно год 2001–2286)
     abs_n = abs(n)
@@ -61,7 +61,7 @@ def _epoch_to_datetime(n: int) -> datetime | None:
         return None
 
 
-def parse_datetime(v: Any) -> datetime | None:
+def parse_datetime(v: Any) -> Optional[datetime]:
     """ISO-дата / epoch (int|str) / datetime → UTC datetime."""
     if v is None or isinstance(v, bool):
         return None
@@ -152,7 +152,7 @@ def _maybe_json(v: Any) -> Any:
     return v
 
 
-def unwrap_payload(obj: Any, mode: str = "auto") -> tuple[Any, str | None]:
+def unwrap_payload(obj: Any, mode: str = "auto") -> Tuple[Any, Optional[str]]:
     """
     Достаём бизнес-payload из Debezium/CDC Envelope.
 
@@ -170,7 +170,7 @@ def unwrap_payload(obj: Any, mode: str = "auto") -> tuple[Any, str | None]:
     if mode in ("full", "raw", "none", ""):
         return obj, None
 
-    def take(field: str) -> Any | None:
+    def take(field: str) -> Optional[Any]:
         if field not in obj:
             return None
         val = _maybe_json(obj.get(field))
@@ -226,7 +226,7 @@ def compare_messages(
     both_empty = []
     same_values = []
     value_diff = []
-    all_fields: list[dict[str, Any]] = []
+    all_fields = []  # type: List[Dict[str, Any]]
 
     def row(
         field: str,
@@ -234,7 +234,7 @@ def compare_messages(
         va: Any = None,
         vb: Any = None,
         comment: str = "",
-    ) -> dict[str, Any]:
+    ) -> Dict[str, Any]:
         return {
             "поле": field,
             "статус": status,

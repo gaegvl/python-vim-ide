@@ -16,6 +16,7 @@ import json
 import sys
 import traceback
 from pathlib import Path
+from typing import Dict, Tuple
 
 from compare import compare_messages
 from reader import read_from_cluster
@@ -50,7 +51,7 @@ def main() -> int:
     global_from_end = cfg.get("from_end")
     output = cfg.get("output") or "compare_report.html"
 
-    schema_cache: dict[tuple[str, str], object] = {}
+    schema_cache = {}  # type: Dict[Tuple[str, str], object]
 
     def schema_for(cluster: dict, topic: str):
         # schema_key можно переопределить на пару через cluster copy

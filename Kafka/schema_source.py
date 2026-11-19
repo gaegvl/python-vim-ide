@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any
+from typing import Any, List, Optional, Tuple
 
 from fastavro import parse_schema
 from kafka import KafkaConsumer, TopicPartition
@@ -121,7 +121,7 @@ def _topic_matches_name(topic: str, name: str) -> bool:
     return _wanted_in_subject(topic, name)
 
 
-def _iter_catalog_entries(catalog: Any) -> list[tuple[str, Any]]:
+def _iter_catalog_entries(catalog: Any) -> List[Tuple[str, Any]]:
     """Нормализуем файл к списку (label, entry)."""
     if isinstance(catalog, list):
         out = []
@@ -184,7 +184,7 @@ def _pick_catalog_entry(catalog: Any, wanted: str, topic: str) -> Any:
 def load_schema_from_catalog_file(
     catalog_path: str,
     topic: str,
-    schema_key: str | None = None,
+    schema_key: Optional[str] = None,
 ):
     """
     Вспомогательный путь: JSON на диске.

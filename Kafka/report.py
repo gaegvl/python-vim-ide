@@ -5,14 +5,18 @@ import html
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def _esc(x: Any) -> str:
     return html.escape("" if x is None else str(x))
 
 
-def write_reports(results: list[dict], output_path: str, meta: dict | None = None) -> list[str]:
+def write_reports(
+    results: List[dict],
+    output_path: str,
+    meta: Optional[dict] = None,
+) -> List[str]:
     """
     results — список результатов по парам.
     Пишет .html и рядом .json (те же данные).
@@ -109,7 +113,7 @@ def _render_html(payload: dict) -> str:
 """
 
 
-def _status_label(status: str) -> tuple[str, str, str]:
+def _status_label(status: str) -> Tuple[str, str, str]:
     """css-class, label, status-css."""
     if status == "совпадает":
         return "row-match", "совпадает", "status-match"
