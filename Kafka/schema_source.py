@@ -135,11 +135,13 @@ def load_schema_from_kafka_topic(cluster: dict, data_topic: str):
     print(f"# [{cluster.get('name')}] schema ssl tmp: {tmp}", file=sys.stderr)
 
     conf = build_ssl_conf(cluster["bootstrap"], ca, cert, keyfile)
+    conf["consumer_timeout_ms"] = int(
+        cluster.get("schema_consumer_timeout_ms") or 20000
+    )
     consumer = KafkaConsumer(
         **conf,
         key_deserializer=lambda v: v,
         value_deserializer=lambda v: v,
-        consumer_timeout_ms=int(cluster.get("schema_consumer_timeout_ms") or 20000),
     )
     tp = TopicPartition(schema_topic, partition)
     consumer.assign([tp])
