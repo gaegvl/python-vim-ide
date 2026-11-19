@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -12,11 +12,27 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 # Малые положительные «секунды» (0 … 1e9, т.е. 1970–2001) не считаем epoch:
 # туда попадают коды вроде call_cd=10600003 (decimal/double), не даты.
 # До 1970 — отрицательный unix time; с ~2001 — seconds >= 1e9; ms/µs/ns — как обычно.
+# Debezium Date (io.debezium.time.Date) = дни с 1970-01-01 (например 20776 → 2026-11-19).
 _EPOCH_YEAR_MIN = 1920
 _EPOCH_YEAR_MAX = 2100
 _EPOCH_SEC_MIN = int(datetime(_EPOCH_YEAR_MIN, 1, 1, tzinfo=timezone.utc).timestamp())
 _EPOCH_SEC_MAX = int(datetime(_EPOCH_YEAR_MAX, 1, 1, tzinfo=timezone.utc).timestamp())
 _EPOCH_SEC_AMBIGUOUS_MAX = 1_000_000_000  # ~2001-09-09
+_EPOCH_DAY_MIN = (date(_EPOCH_YEAR_MIN, 1, 1) - date(1970, 1, 1)).days
+_EPOCH_DAY_MAX = (date(_EPOCH_YEAR_MAX, 1, 1) - date(1970, 1, 1)).days
+# без подсказки имени поля не трогаем малые day-count (calc_months=6 и т.п.)
+_EPOCH_DAY_AMBIGUOUS = 10_000  # ~1997-05-19
+
+
+def _field_looks_like_date(field: Optional[str]) -> bool:
+    if not field:
+        return False
+    base = str(field).split(".")[-1].lower()
+    if base.endswith("_dt") or base.endswith("_date") or base.endswith("date"):
+        return True
+    if base.endswith("_dttm") or base.endswith("_ts") or base.endswith("timestamp"):
+        return True
+    return base in ("date", "dt", "day")
 
 
 def flatten(obj: Any, prefix: str = "") -> Dict[str, Any]:
@@ -54,6 +70,29 @@ def is_empty(v: Any) -> bool:
 
 def _in_epoch_year_range(seconds: float) -> bool:
     return _EPOCH_SEC_MIN <= seconds <= _EPOCH_SEC_MAX
+
+
+def _epoch_days_to_datetime(
+    n: Union[int, float],
+    *,
+    force: bool = False,
+) -> Optional[datetime]:
+    """Debezium Date: дни с 1970-01-01 → UTC midnight."""
+    try:
+        x = float(n)
+    except (TypeError, ValueError):
+        return None
+    if not float(x).is_integer():
+        return None
+    days = int(x)
+    if not (_EPOCH_DAY_MIN <= days <= _EPOCH_DAY_MAX):
+        return None
+    if not force and abs(days) < _EPOCH_DAY_AMBIGUOUS:
+        return None
+    try:
+        return datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(days=days)
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _epoch_to_datetime(n: Union[int, float]) -> Optional[datetime]:
@@ -98,34 +137,53 @@ def _epoch_to_datetime(n: Union[int, float]) -> Optional[datetime]:
         return None
 
 
-def parse_datetime(v: Any) -> Optional[datetime]:
-    """ISO-дата / epoch (1920–2100) / datetime → UTC datetime."""
+def parse_datetime(v: Any, field: Optional[str] = None) -> Optional[datetime]:
+    """ISO-дата / epoch sec|ms|µs|ns / Debezium days / datetime → UTC."""
     if v is None or isinstance(v, bool):
         return None
     if isinstance(v, datetime):
         if v.tzinfo is None:
             return v.replace(tzinfo=timezone.utc)
         return v.astimezone(timezone.utc)
+
+    prefer_days = _field_looks_like_date(field)
+
+    def from_number(n: Union[int, float]) -> Optional[datetime]:
+        # *_dt / Date: сначала дни (20776), иначе ms/µs stamp
+        if prefer_days:
+            got = _epoch_days_to_datetime(n, force=True)
+            if got is not None:
+                return got
+        got = _epoch_to_datetime(n)
+        if got is not None:
+            return got
+        return _epoch_days_to_datetime(n, force=prefer_days)
+
     if isinstance(v, Decimal):
-        # decimal-коды не считаем датами; только целые «похожие на epoch»
         if v == v.to_integral_value():
-            return _epoch_to_datetime(int(v))
+            return from_number(int(v))
         return None
     if isinstance(v, (int, float)) and not isinstance(v, bool):
-        return _epoch_to_datetime(v)
+        return from_number(v)
     if isinstance(v, str):
         s = v.strip()
         if not s:
             return None
-        # чистое число → epoch только если в диапазоне лет
+        # чистое число → epoch
         if re.fullmatch(r"-?\d+(\.\d+)?", s):
             try:
                 if "." in s:
-                    return _epoch_to_datetime(float(s))
-                return _epoch_to_datetime(int(s))
+                    return from_number(float(s))
+                return from_number(int(s))
             except ValueError:
                 return None
-        # 2026-11-19 04:53:28.858000+00:00 / ISO
+        # 2026-11-19 / ISO datetime
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+            try:
+                d = date.fromisoformat(s)
+                return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+            except ValueError:
+                return None
         s2 = s.replace("Z", "+00:00")
         if " " in s2 and "T" not in s2[:20]:
             s2 = s2.replace(" ", "T", 1)
@@ -185,12 +243,12 @@ def _is_numeric_scalar(v: Any) -> bool:
     return False
 
 
-def normalize_value(v: Any) -> Any:
+def normalize_value(v: Any, field: Optional[str] = None) -> Any:
     """
     Для сравнения:
     1) datetime / ISO-строка → ISO UTC
-    2) epoch если число даёт год 1920–2100 (малые коды 1970–2001 — не epoch)
-    3) иначе числа (decimal/double) → Decimal
+    2) epoch sec|ms|µs|ns или Debezium days (*_dt → 20776)
+    3) иначе числа → Decimal
     """
     if isinstance(v, datetime):
         return format_datetime(
@@ -199,15 +257,14 @@ def normalize_value(v: Any) -> Any:
 
     # Текстовые даты (не чистое число)
     if isinstance(v, str) and not _is_numeric_scalar(v):
-        dt = parse_datetime(v)
+        dt = parse_datetime(v, field=field)
         if dt is not None:
             return format_datetime(dt)
         return v
 
     if _is_numeric_scalar(v):
-        dt = parse_datetime(v)
+        dt = parse_datetime(v, field=field)
         if dt is not None:
-            # правдоподобный epoch (µs даты 2026 и т.п.)
             return format_datetime(dt)
         dec = to_decimal(v)
         if dec is not None:
@@ -216,18 +273,23 @@ def normalize_value(v: Any) -> Any:
     return v
 
 
-def values_equal(a: Any, b: Any) -> bool:
+def values_equal(a: Any, b: Any, field: Optional[str] = None) -> bool:
     if a == b:
         return True
-    na, nb = normalize_value(a), normalize_value(b)
+    na, nb = normalize_value(a, field=field), normalize_value(b, field=field)
     if na == nb:
         return True
     if isinstance(na, Decimal) and isinstance(nb, Decimal):
         return na == nb
+    # дата без времени vs midnight
+    if isinstance(na, str) and isinstance(nb, str):
+        da, db = parse_datetime(na, field=field), parse_datetime(nb, field=field)
+        if da is not None and db is not None and da == db:
+            return True
     return False
 
 
-def _fmt(v: Any) -> str:
+def _fmt(v: Any, field: Optional[str] = None) -> str:
     if v is None:
         return "∅ (пусто)"
     if isinstance(v, bool):
@@ -238,14 +300,17 @@ def _fmt(v: Any) -> str:
         )
 
     if isinstance(v, str) and not _is_numeric_scalar(v):
-        dt = parse_datetime(v)
+        dt = parse_datetime(v, field=field)
         if dt is not None:
             return format_datetime(dt)
 
     if _is_numeric_scalar(v):
-        dt = parse_datetime(v)
+        dt = parse_datetime(v, field=field)
         if dt is not None:
-            return "{0}  (epoch {1})".format(format_datetime(dt), v)
+            label = "days" if _field_looks_like_date(field) and _epoch_days_to_datetime(
+                int(float(v)), force=True
+            ) == dt else "epoch"
+            return "{0}  ({1} {2})".format(format_datetime(dt), label, v)
         dec = to_decimal(v)
         if dec is not None:
             return format_decimal(dec)
@@ -429,9 +494,9 @@ def compare_sources(
         for n in names:
             va = vals[n]
             row[n] = va
-            row["{0}_текст".format(n)] = _fmt(va) if n in have else "—"
+            row["{0}_текст".format(n)] = _fmt(va, field=k) if n in have else "—"
             row["{0}_нормализовано".format(n)] = (
-                normalize_value(va) if n in have else None
+                normalize_value(va, field=k) if n in have else None
             )
 
         if is_service_field(k):
@@ -458,7 +523,11 @@ def compare_sources(
                 row["комментарий"] = "нет в: {0}".format(", ".join(missing))
             else:
                 base = filled[0][1] if filled else vals[have[0]]
-                equal = all(values_equal(base, vals[n]) for n, _ in filled[1:]) if len(filled) > 1 else True
+                equal = (
+                    all(values_equal(base, vals[n], field=k) for n, _ in filled[1:])
+                    if len(filled) > 1
+                    else True
+                )
                 if equal and len(filled) <= 1:
                     row["статус"] = "частично"
                     row["комментарий"] = "нет в: {0}".format(", ".join(missing))
@@ -496,7 +565,7 @@ def compare_sources(
             if is_empty(vals[n]) and not is_empty(ref):
                 equal = False
                 break
-            if not is_empty(vals[n]) and not values_equal(ref, vals[n]):
+            if not is_empty(vals[n]) and not values_equal(ref, vals[n], field=k):
                 equal = False
                 break
         if equal:
