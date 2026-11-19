@@ -2,16 +2,34 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 from kafka import KafkaConsumer, TopicPartition
 
 from conf import build_ssl_conf, prepare_ssl_files
 
 try:
-    from avro_decode import decode_avro_value
+    from avro_decode import decode_avro_value, hex_prefix, peek_confluent_schema_id
 except ImportError:
     decode_avro_value = None
+    hex_prefix = None  # type: ignore
+    peek_confluent_schema_id = None  # type: ignore
+
+_WIRE_META_KEYS = ("__wire", "__schema_id", "__hex")
+
+
+def _split_wire_meta(data: Any) -> Tuple[Any, Dict[str, Any]]:
+    """Достаём служебные __wire/__schema_id из успешного decode."""
+    meta = {}  # type: Dict[str, Any]
+    if not isinstance(data, dict):
+        return data, meta
+    if not any(k in data for k in _WIRE_META_KEYS):
+        return data, meta
+    clean = dict(data)
+    for k in _WIRE_META_KEYS:
+        if k in clean:
+            meta[k[2:]] = clean.pop(k)  # wire / schema_id / hex
+    return clean, meta
 
 
 def safe_decode(v: Optional[Union[bytes, str]]) -> Optional[Union[str, bytes]]:
@@ -192,20 +210,42 @@ def read_from_cluster(
             elif offset is not None and msg.offset != offset:
                 continue
 
-            schema_id = None
-            if isinstance(raw_value, (bytes, bytearray)) and len(raw_value) >= 5 and raw_value[0] == 0:
-                schema_id = int.from_bytes(raw_value[1:5], "big")
-
-            data = try_parse(raw_value, avro_schema=avro_schema)
-            decode_error = None
-            if isinstance(data, dict) and data.get("_binary") and data.get("_error"):
-                decode_error = data.get("_error")
+            # Только peek: raw[0]==0 ещё не доказательство Confluent
+            peek_id = None
+            if peek_confluent_schema_id and isinstance(raw_value, (bytes, bytearray)):
+                peek_id = peek_confluent_schema_id(bytes(raw_value))
+            if hex_prefix and isinstance(raw_value, (bytes, bytearray)):
                 print(
-                    "# [{0}] decode error schema_id={1}: {2}".format(
-                        cluster["name"], schema_id, decode_error
+                    "# [{0}] value len={1} hex[{2}] peek_schema_id={3}".format(
+                        cluster["name"],
+                        len(raw_value),
+                        hex_prefix(bytes(raw_value)),
+                        peek_id,
                     ),
                     file=sys.stderr,
                 )
+
+            data = try_parse(raw_value, avro_schema=avro_schema)
+            data, wire_meta = _split_wire_meta(data)
+            decode_error = None
+            wire = wire_meta.get("wire")
+            schema_id = wire_meta.get("schema_id")
+            if isinstance(data, dict) and data.get("_binary") and data.get("_error"):
+                decode_error = data.get("_error")
+                schema_id = data.get("_schema_id", peek_id)
+                wire = data.get("_wire_guess") or wire
+                print(
+                    "# [{0}] decode error wire={1} schema_id={2}: {3}".format(
+                        cluster["name"], wire, schema_id, decode_error
+                    ),
+                    file=sys.stderr,
+                )
+            elif wire == "confluent":
+                # id достоверен только если decode прошёл в режиме confluent
+                schema_id = wire_meta.get("schema_id")
+            else:
+                # raw Avro: peek_id мог быть ложным (байты payload)
+                schema_id = None
 
             if with_meta:
                 return {
@@ -216,8 +256,13 @@ def read_from_cluster(
                     "key": key_text(msg.key) or msg.key,
                     "value": data,
                     "raw_value": raw_value,
-                    "schema_id": schema_id if schema_id is not None else (
-                        data.get("_schema_id") if isinstance(data, dict) else None
+                    "schema_id": schema_id,
+                    "peek_schema_id": peek_id,
+                    "wire": wire,
+                    "value_hex": wire_meta.get("hex") or (
+                        hex_prefix(bytes(raw_value))
+                        if hex_prefix and isinstance(raw_value, (bytes, bytearray))
+                        else None
                     ),
                     "decode_error": decode_error,
                 }

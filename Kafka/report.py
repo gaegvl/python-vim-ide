@@ -188,16 +188,24 @@ def _render_pair(idx: int, pair: dict) -> str:
                 )
             elif meta.get("payload") is not None:
                 extra = " keys={0}".format(_esc(meta.get("payload")))
+            wire_info = ""
+            if meta.get("wire") or meta.get("hex"):
+                wire_info = ", wire={0}, hex[{1}], peek_id={2}".format(
+                    _esc(meta.get("wire")),
+                    _esc(meta.get("hex")),
+                    _esc(meta.get("peek_schema_id")),
+                )
             payload_info = ""
             pl = (cmp_.get("payload") or {}).get(c)
             if pl:
                 payload_info = ", unwrap={0}".format(_esc(pl))
             src_lines.append(
-                "<b>{0}:</b> <code>{1}</code> offset={2}, schema_id={3}{4}{5}".format(
+                "<b>{0}:</b> <code>{1}</code> offset={2}, schema_id={3}{4}{5}{6}".format(
                     _esc(c),
                     _esc(meta.get("topic") or pair.get("левый_топик") if c == cols[0] else pair.get("правый_топик")),
                     _esc(meta.get("offset")),
                     _esc(meta.get("schema_id")),
+                    wire_info,
                     payload_info,
                     extra,
                 )

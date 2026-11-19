@@ -154,52 +154,21 @@ def main() -> int:
 
             def read_and_fix_schema(cluster, topic, sch, **kwargs):
                 """
-                Читаем сообщение, затем при наличии schema_catalog
-                передекодируем строго по schema_id из Confluent-заголовка.
-                Иначе subject-match часто даёт другую версию → пустой 610_5.
+                Читаем по схеме subject/topic.
+                Retry по schema_id — только если decode подтвердил wire=confluent
+                (peek raw[0]==0 сам по себе часто ложный: так начинается Avro).
                 """
+                from reader import _split_wire_meta
+
                 msg = read_from_cluster(
                     cluster, topic=topic, avro_schema=sch, **kwargs
                 )
-                sid = msg.get("schema_id")
                 val = msg.get("value")
-                if sid is None and isinstance(val, dict):
-                    sid = val.get("_schema_id")
+                wire = msg.get("wire")
+                sid = msg.get("schema_id")  # только после успешного confluent
+                peek_id = msg.get("peek_schema_id")
                 catalog = cluster.get("schema_catalog")
                 raw = msg.get("raw_value")
-
-                def apply_schema(sch2, reason):
-                    if raw is None:
-                        return msg
-                    print(
-                        "# [{0}] decode with schema_id={1} ({2})".format(
-                            cluster["name"], sid, reason
-                        ),
-                        file=sys.stderr,
-                    )
-                    data2 = try_parse(raw, avro_schema=sch2)
-                    out = dict(msg)
-                    out["value"] = data2
-                    out["schema_id"] = sid
-                    if isinstance(data2, dict) and data2.get("_error"):
-                        out["decode_error"] = data2.get("_error")
-                        print(
-                            "# [{0}] decode still failing: {1}".format(
-                                cluster["name"], data2.get("_error")
-                            ),
-                            file=sys.stderr,
-                        )
-                    else:
-                        out["decode_error"] = None
-                        if isinstance(data2, dict):
-                            print(
-                                "# [{0}] decode ok, keys={1}".format(
-                                    cluster["name"],
-                                    list(data2.keys())[:12],
-                                ),
-                                file=sys.stderr,
-                            )
-                    return out
 
                 decode_failed = (
                     isinstance(val, dict)
@@ -207,43 +176,83 @@ def main() -> int:
                     and val.get("_error")
                 )
 
-                if catalog and sid is not None:
-                    try:
-                        sch2 = schema_for(cluster, topic, schema_id=int(sid))
-                    except SystemExit as e:
-                        print(
-                            "# [{0}] нет схемы id={1} в catalog: {2}".format(
-                                cluster["name"], sid, e
-                            ),
-                            file=sys.stderr,
-                        )
-                        if decode_failed:
-                            # оставим ошибку decode + подсказку
-                            bad = dict(val)
-                            bad["_error"] = (
-                                "{0}; в schema_catalog нет id={1} "
-                                "(проверьте экспорт Registry)".format(
-                                    val.get("_error"), sid
-                                )
-                            )
-                            msg = dict(msg)
-                            msg["value"] = bad
-                            msg["decode_error"] = bad["_error"]
-                        return msg
-                    except Exception as e:
-                        print(
-                            "# [{0}] schema by id failed: {1}".format(
-                                cluster["name"], e
-                            ),
-                            file=sys.stderr,
-                        )
-                        return msg
-                    return apply_schema(
-                        sch2,
-                        "retry" if decode_failed else "prefer wire id",
-                    )
+                print(
+                    "# [{0}] wire={1} schema_id={2} peek_id={3} hex[{4}] "
+                    "decode_ok={5}".format(
+                        cluster["name"],
+                        wire,
+                        sid,
+                        peek_id,
+                        msg.get("value_hex"),
+                        not decode_failed,
+                    ),
+                    file=sys.stderr,
+                )
 
-                return msg
+                # Успешный raw/confluent по subject — не трогаем
+                if not decode_failed:
+                    return msg
+
+                # Retry по id только при уверенном Confluent header
+                use_id = sid if wire == "confluent" else None
+                if use_id is None and wire and "confluent" in str(wire) and peek_id:
+                    use_id = peek_id
+                if not catalog or use_id is None:
+                    if peek_id and decode_failed:
+                        print(
+                            "# [{0}] peek_schema_id={1} не используем: "
+                            "схема по subject не декодировала; "
+                            "проверьте hex — это может быть не Confluent-header "
+                            "(сырой Avro тоже часто начинается с 00)".format(
+                                cluster["name"], peek_id
+                            ),
+                            file=sys.stderr,
+                        )
+                    return msg
+
+                try:
+                    sch2 = schema_for(cluster, topic, schema_id=int(use_id))
+                except SystemExit as e:
+                    print(
+                        "# [{0}] нет схемы id={1} в catalog: {2}".format(
+                            cluster["name"], use_id, e
+                        ),
+                        file=sys.stderr,
+                    )
+                    return msg
+                except Exception as e:
+                    print(
+                        "# [{0}] schema by id failed: {1}".format(
+                            cluster["name"], e
+                        ),
+                        file=sys.stderr,
+                    )
+                    return msg
+
+                if raw is None:
+                    return msg
+                data2 = try_parse(raw, avro_schema=sch2)
+                data2, wire_meta = _split_wire_meta(data2)
+                out = dict(msg)
+                out["value"] = data2
+                out["wire"] = wire_meta.get("wire") or out.get("wire")
+                if wire_meta.get("schema_id") is not None:
+                    out["schema_id"] = wire_meta.get("schema_id")
+                if isinstance(data2, dict) and data2.get("_error"):
+                    out["decode_error"] = data2.get("_error")
+                else:
+                    out["decode_error"] = None
+                    print(
+                        "# [{0}] retry by id={1} ok keys={2}".format(
+                            cluster["name"],
+                            use_id,
+                            list(data2.keys())[:12]
+                            if isinstance(data2, dict)
+                            else type(data2).__name__,
+                        ),
+                        file=sys.stderr,
+                    )
+                return out
 
             read_kw_l = dict(
                 offset=pair.get("left_offset"),
@@ -277,6 +286,9 @@ def main() -> int:
                     "offset": msg_a["offset"],
                     "partition": msg_a["partition"],
                     "schema_id": msg_a.get("schema_id"),
+                    "peek_schema_id": msg_a.get("peek_schema_id"),
+                    "wire": msg_a.get("wire"),
+                    "hex": msg_a.get("value_hex"),
                     "key": msg_a.get("key"),
                     "decode_error": msg_a.get("decode_error"),
                     "payload": (
@@ -290,6 +302,9 @@ def main() -> int:
                     "offset": msg_b["offset"],
                     "partition": msg_b["partition"],
                     "schema_id": msg_b.get("schema_id"),
+                    "peek_schema_id": msg_b.get("peek_schema_id"),
+                    "wire": msg_b.get("wire"),
+                    "hex": msg_b.get("value_hex"),
                     "key": msg_b.get("key"),
                     "decode_error": msg_b.get("decode_error"),
                     "payload": (

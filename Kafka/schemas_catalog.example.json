@@ -3,7 +3,7 @@
     "subject": "rkk.customer_service.customer_form-value",
     "version": 15,
     "id": 3974,
-    "_comment": "id должен совпадать со schema_id в сообщении (Confluent header). Иначе 610_5 будет пустым. Экспорт: GET /schemas/ids/<schema_id>",
+    "_comment": "Confluent id из value надёжен только если decode выбрал wire=confluent. Сырой Avro тоже часто начинается с 00 — peek_schema_id может быть ложным. Смотрите hex в логе.",
     "schema": "{\"type\":\"record\",\"name\":\"Envelope\",\"namespace\":\"rkk.customer_service\",\"fields\":[{\"name\":\"before\",\"type\":[\"null\",\"string\"],\"default\":null},{\"name\":\"after\",\"type\":[\"null\",\"string\"],\"default\":null}]}"
   },
   {

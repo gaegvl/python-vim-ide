@@ -374,7 +374,9 @@ def compare_sources(
         if isinstance(raw, dict) and raw.get("_binary") and raw.get("_error"):
             flats[name] = {
                 "ошибка_decode": raw.get("_error"),
-                "schema_id_в_сообщении": raw.get("_schema_id"),
+                "schema_id_peek": raw.get("_schema_id"),
+                "value_hex": raw.get("_hex"),
+                "wire_guess": raw.get("_wire_guess"),
             }
             present[name] = True
             payload_meta[name] = "ошибка decode: {0}".format(raw.get("_error"))
