@@ -4,7 +4,16 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+
+# Epoch только в «разумном» диапазоне лет (иначе коды вроде call_cd=10600003
+# ошибочно превращаются в даты 1970-05-...).
+_EPOCH_YEAR_MIN = 2000
+_EPOCH_YEAR_MAX = 2100
+_EPOCH_SEC_MIN = int(datetime(_EPOCH_YEAR_MIN, 1, 1, tzinfo=timezone.utc).timestamp())
+_EPOCH_SEC_MAX = int(datetime(_EPOCH_YEAR_MAX, 1, 1, tzinfo=timezone.utc).timestamp())
 
 
 def flatten(obj: Any, prefix: str = "") -> Dict[str, Any]:
@@ -40,51 +49,68 @@ def is_empty(v: Any) -> bool:
     return False
 
 
-def _epoch_to_datetime(n: int) -> Optional[datetime]:
-    """Seconds / ms / µs / ns since epoch → UTC datetime."""
-    # пороги по порядку величины (примерно год 2001–2286)
-    abs_n = abs(n)
+def _in_epoch_year_range(seconds: float) -> bool:
+    return _EPOCH_SEC_MIN <= seconds <= _EPOCH_SEC_MAX
+
+
+def _epoch_to_datetime(n: Union[int, float]) -> Optional[datetime]:
+    """
+    Seconds / ms / µs / ns since epoch → UTC datetime.
+    Только если результат попадает в 2000–2100 (не путаем с кодами/decimal).
+    """
+    try:
+        x = float(n)
+    except (TypeError, ValueError):
+        return None
+    abs_n = abs(x)
     try:
         if abs_n < 1_000_000_000_000:  # < 1e12 → секунды
-            ts = n
-            us = 0
-        elif abs_n < 1_000_000_000_000_000:  # < 1e15 → миллисекунды
-            ts, us = divmod(n, 1_000)
-            us *= 1_000
-        elif abs_n < 1_000_000_000_000_000_000:  # < 1e18 → микросекунды
-            ts, us = divmod(n, 1_000_000)
-        else:  # наносекунды
-            ts, rem = divmod(n, 1_000_000_000)
+            seconds = x
+            us = int(round((x - int(x)) * 1_000_000)) if not float(x).is_integer() else 0
+            ts = int(x)
+        elif abs_n < 1_000_000_000_000_000:  # ms
+            ts, rem = divmod(int(x), 1_000)
+            seconds = ts
+            us = rem * 1_000
+        elif abs_n < 1_000_000_000_000_000_000:  # µs
+            ts, us = divmod(int(x), 1_000_000)
+            seconds = ts
+        else:  # ns
+            ts, rem = divmod(int(x), 1_000_000_000)
+            seconds = ts
             us = rem // 1_000
+        if not _in_epoch_year_range(seconds):
+            return None
+        us = max(0, min(999999, us))
         return datetime.fromtimestamp(ts, tz=timezone.utc).replace(microsecond=us)
     except (OverflowError, OSError, ValueError):
         return None
 
 
 def parse_datetime(v: Any) -> Optional[datetime]:
-    """ISO-дата / epoch (int|str) / datetime → UTC datetime."""
+    """ISO-дата / epoch (в диапазоне 2000–2100) / datetime → UTC datetime."""
     if v is None or isinstance(v, bool):
         return None
     if isinstance(v, datetime):
         if v.tzinfo is None:
             return v.replace(tzinfo=timezone.utc)
         return v.astimezone(timezone.utc)
+    if isinstance(v, Decimal):
+        # decimal-коды не считаем датами; только целые «похожие на epoch»
+        if v == v.to_integral_value():
+            return _epoch_to_datetime(int(v))
+        return None
     if isinstance(v, (int, float)) and not isinstance(v, bool):
-        if isinstance(v, float):
-            if not v.is_integer():
-                # unix seconds with fraction
-                try:
-                    return datetime.fromtimestamp(v, tz=timezone.utc)
-                except (OverflowError, OSError, ValueError):
-                    return None
-            v = int(v)
         return _epoch_to_datetime(v)
     if isinstance(v, str):
         s = v.strip()
         if not s:
             return None
-        if re.fullmatch(r"-?\d+", s):
+        # чистое число → epoch только если в диапазоне лет
+        if re.fullmatch(r"-?\d+(\.\d+)?", s):
             try:
+                if "." in s:
+                    return _epoch_to_datetime(float(s))
                 return _epoch_to_datetime(int(s))
             except ValueError:
                 return None
@@ -107,11 +133,75 @@ def format_datetime(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat(sep=" ", timespec="microseconds")
 
 
+def to_decimal(v: Any) -> Optional[Decimal]:
+    """int/float/Decimal/числовая строка → Decimal (не даты)."""
+    if v is None or isinstance(v, bool):
+        return None
+    if isinstance(v, Decimal):
+        return v
+    if isinstance(v, (int, float)):
+        try:
+            return Decimal(str(v))
+        except (InvalidOperation, ValueError):
+            return None
+    if isinstance(v, str):
+        s = v.strip().replace(" ", "")
+        if not s or not re.fullmatch(r"-?\d+(\.\d+)?", s):
+            return None
+        try:
+            return Decimal(s)
+        except (InvalidOperation, ValueError):
+            return None
+    return None
+
+
+def format_decimal(d: Decimal) -> str:
+    """Читаемый decimal без scientific notation, без лишних нулей справа."""
+    t = d.normalize()
+    s = format(t, "f")
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    return s or "0"
+
+
+def _is_numeric_scalar(v: Any) -> bool:
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, (int, float, Decimal)):
+        return True
+    if isinstance(v, str):
+        return bool(re.fullmatch(r"-?\d+(\.\d+)?", v.strip()))
+    return False
+
+
 def normalize_value(v: Any) -> Any:
-    """Для сравнения: даты → единая ISO-строка UTC, иначе как есть."""
-    dt = parse_datetime(v)
-    if dt is not None:
-        return format_datetime(dt)
+    """
+    Для сравнения:
+    1) datetime / ISO-строка → ISO UTC
+    2) epoch только если число даёт год 2000–2100
+    3) иначе числа (decimal/double) → Decimal
+    """
+    if isinstance(v, datetime):
+        return format_datetime(
+            v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v.astimezone(timezone.utc)
+        )
+
+    # Текстовые даты (не чистое число)
+    if isinstance(v, str) and not _is_numeric_scalar(v):
+        dt = parse_datetime(v)
+        if dt is not None:
+            return format_datetime(dt)
+        return v
+
+    if _is_numeric_scalar(v):
+        dt = parse_datetime(v)
+        if dt is not None:
+            # правдоподобный epoch (µs даты 2026 и т.п.)
+            return format_datetime(dt)
+        dec = to_decimal(v)
+        if dec is not None:
+            return dec
+
     return v
 
 
@@ -119,7 +209,11 @@ def values_equal(a: Any, b: Any) -> bool:
     if a == b:
         return True
     na, nb = normalize_value(a), normalize_value(b)
-    return na == nb
+    if na == nb:
+        return True
+    if isinstance(na, Decimal) and isinstance(nb, Decimal):
+        return na == nb
+    return False
 
 
 def _fmt(v: Any) -> str:
@@ -127,15 +221,26 @@ def _fmt(v: Any) -> str:
         return "∅ (пусто)"
     if isinstance(v, bool):
         return "да" if v else "нет"
-    dt = parse_datetime(v)
-    if dt is not None:
-        # показываем читаемо + исходник, если это был epoch
-        nice = format_datetime(dt)
-        if isinstance(v, (int, float)) or (isinstance(v, str) and re.fullmatch(r"-?\d+", v.strip())):
-            return f"{nice}  (epoch {v})"
-        if nice != str(v).strip().replace("T", " "):
-            return nice
-        return nice
+    if isinstance(v, datetime):
+        return format_datetime(
+            v.replace(tzinfo=timezone.utc) if v.tzinfo is None else v.astimezone(timezone.utc)
+        )
+
+    if isinstance(v, str) and not _is_numeric_scalar(v):
+        dt = parse_datetime(v)
+        if dt is not None:
+            return format_datetime(dt)
+
+    if _is_numeric_scalar(v):
+        dt = parse_datetime(v)
+        if dt is not None:
+            return "{0}  (epoch {1})".format(format_datetime(dt), v)
+        dec = to_decimal(v)
+        if dec is not None:
+            return format_decimal(dec)
+
+    if isinstance(v, Decimal):
+        return format_decimal(v)
     if isinstance(v, (dict, list)):
         return json.dumps(v, ensure_ascii=False, default=str)
     return str(v)
