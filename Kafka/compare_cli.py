@@ -128,11 +128,17 @@ def main() -> int:
                 avro_schema=sch_r,
             )
 
+            payload_field = (
+                pair.get("payload_field")
+                or cfg.get("payload_field")
+                or "auto"
+            )
             cmp_ = compare_messages(
                 msg_a["value"],
                 msg_b["value"],
                 name_a=left["name"],
                 name_b=right["name"],
+                payload_field=str(payload_field),
             )
             item["сравнение"] = cmp_
             item["смещения"] = {

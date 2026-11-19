@@ -3,6 +3,7 @@
   "key_contains": true,
   "from_end": 50000,
   "max_messages": 500000,
+  "payload_field": "auto",
   "output": "compare_report.html",
   "clusters": {
     "left": {

@@ -1,6 +1,7 @@
 """Сравнение двух JSON/dict: состав полей и значения."""
 from __future__ import annotations
 
+import json
 from typing import Any
 
 
@@ -43,14 +44,84 @@ def _fmt(v: Any) -> str:
     if isinstance(v, bool):
         return "да" if v else "нет"
     if isinstance(v, (dict, list)):
-        import json
-
         return json.dumps(v, ensure_ascii=False, default=str)
     return str(v)
 
 
-def compare_messages(a: Any, b: Any, name_a: str = "A", name_b: str = "B") -> dict:
-    fa, fb = flatten(a), flatten(b)
+def _maybe_json(v: Any) -> Any:
+    if isinstance(v, str):
+        s = v.strip()
+        if s.startswith("{") or s.startswith("["):
+            try:
+                return json.loads(s)
+            except json.JSONDecodeError:
+                return v
+    return v
+
+
+def unwrap_payload(obj: Any, mode: str = "auto") -> tuple[Any, str | None]:
+    """
+    Достаём бизнес-payload из Debezium/CDC Envelope.
+
+    mode:
+      auto  — если есть dict/JSON в after (или before при delete) → берём его
+      after — всегда after (ошибка если нет)
+      before — всегда before
+      full  — без разворачивания
+    """
+    obj = _maybe_json(obj)
+    if not isinstance(obj, dict):
+        return obj, None
+
+    mode = (mode or "auto").lower().strip()
+    if mode in ("full", "raw", "none", ""):
+        return obj, None
+
+    def take(field: str) -> Any | None:
+        if field not in obj:
+            return None
+        val = _maybe_json(obj.get(field))
+        return val if isinstance(val, dict) else None
+
+    if mode == "after":
+        got = take("after")
+        if got is None:
+            raise SystemExit("payload_field=after, но after отсутствует или не object")
+        return got, "after"
+    if mode == "before":
+        got = take("before")
+        if got is None:
+            raise SystemExit("payload_field=before, но before отсутствует или не object")
+        return got, "before"
+
+    # auto: типичный Envelope (after/before + op/source)
+    looks_envelope = (
+        ("after" in obj or "before" in obj)
+        and ("op" in obj or "source" in obj or "ts_ms" in obj or "transaction" in obj)
+    )
+    if not looks_envelope and "after" not in obj:
+        return obj, None
+
+    after = take("after")
+    if after is not None:
+        return after, "after"
+    before = take("before")
+    if before is not None:
+        return before, "before"
+    return obj, None
+
+
+def compare_messages(
+    a: Any,
+    b: Any,
+    name_a: str = "A",
+    name_b: str = "B",
+    *,
+    payload_field: str = "auto",
+) -> dict:
+    a_unwrapped, a_from = unwrap_payload(a, payload_field)
+    b_unwrapped, b_from = unwrap_payload(b, payload_field)
+    fa, fb = flatten(a_unwrapped), flatten(b_unwrapped)
     # служебные ключи decode не считаем бизнес-полями в «только слева», но покажем в meta
     def is_meta(k: str) -> bool:
         return k.startswith("_") or "._" in k
@@ -117,6 +188,11 @@ def compare_messages(a: Any, b: Any, name_a: str = "A", name_b: str = "B") -> di
 
     return {
         "итог": "совпадает" if ok else "есть различия",
+        "payload": {
+            name_a: a_from or "full",
+            name_b: b_from or "full",
+            "режим": payload_field,
+        },
         "сводка": {
             "полей_только_в_" + name_a: len(only_a),
             "полей_только_в_" + name_b: len(only_b),
