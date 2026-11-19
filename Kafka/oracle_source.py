@@ -49,8 +49,9 @@ def row_to_dict(columns, values) -> Dict[str, Any]:
 
 def connect(oracle_cfg: dict):
     """
-    oracle_cfg:
+    oracle_cfg (только коннект):
       user, password, dsn  (или host, port, service_name)
+    prefix/table/pk задаются в pair.oracle
     """
     user = oracle_cfg.get("user") or oracle_cfg.get("username")
     password = oracle_cfg.get("password")
@@ -87,14 +88,17 @@ def resolve_pair_oracle(pair_oracle: dict, global_oracle: Optional[dict] = None)
     """
     g = global_oracle or {}
     p = pair_oracle or {}
-    prefix = (p.get("prefix") or g.get("prefix") or "rkk").strip()
+    # prefix / table / pk — в паре; глобальный oracle только login/dsn
+    prefix = (p.get("prefix") or "").strip()
+    if not prefix:
+        raise SystemExit("В pair.oracle нужен prefix (например rkk)")
     table = (p.get("table") or p.get("table_name") or "").strip()
     if not table:
         raise SystemExit("В pair.oracle нужен table / table_name")
 
-    pk = (p.get("pk_column") or g.get("pk_column") or "").strip()
+    pk = (p.get("pk_column") or "").strip()
     if not pk:
-        raise SystemExit("В oracle / pair.oracle нужен pk_column")
+        raise SystemExit("В pair.oracle нужен pk_column")
 
     soh_table = (p.get("soh_table") or p.get("h2_table") or "").strip()
     if not soh_table:

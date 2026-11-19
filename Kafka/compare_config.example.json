@@ -7,9 +7,7 @@
   "oracle": {
     "user": "APP_USER",
     "password": "secret",
-    "dsn": "db-host:1521/SERVICE",
-    "prefix": "rkk",
-    "pk_column": "loan_request_id"
+    "dsn": "db-host:1521/SERVICE"
   },
   "clusters": {
     "left": {
