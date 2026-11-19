@@ -1,0 +1,48 @@
+{
+  "key": "5667630a-6d39-44f5-b3d2-fc5ff78ee37e",
+  "key_contains": true,
+  "from_end": 50000,
+  "max_messages": 500000,
+  "output": "compare_report.html",
+  "clusters": {
+    "left": {
+      "name": "610_4",
+      "bootstrap": "broker-a1:9092,broker-a2:9092",
+      "truststore_pfx": "C:\\\\path\\\\a-truststore.pfx",
+      "truststore_pass": "pass",
+      "keystore_pfx": "C:\\\\path\\\\a-keystore.pfx",
+      "keystore_pass": "pass",
+      "schema_topic": "ods.schemas",
+      "schema_partition": 0,
+      "schema_catalog": null
+    },
+    "right": {
+      "name": "610_5",
+      "bootstrap": "broker-b1:9092,broker-b2:9092",
+      "truststore_pfx": "C:\\\\path\\\\b-truststore.pfx",
+      "truststore_pass": "pass",
+      "keystore_pfx": "C:\\\\path\\\\b-keystore.pfx",
+      "keystore_pass": "pass",
+      "schema_topic": "ods.schemas",
+      "schema_partition": 0,
+      "schema_catalog": null
+    }
+  },
+  "pairs": [
+    {
+      "name": "Анкета клиента",
+      "left_topic": "dbzm.rkk.customer_service.csmr_customer_form",
+      "right_topic": "rkk.customer_service.customer_form",
+      "left_partition": 0,
+      "right_partition": 0,
+      "key_field": null
+    },
+    {
+      "name": "Стоп-лист",
+      "left_topic": "dbzm.rkk.customercheck_service.csch_stoplist_conclusion",
+      "right_topic": "rkk.customercheck_service.stoplist_conclusion",
+      "left_partition": 0,
+      "right_partition": 0
+    }
+  ]
+}
