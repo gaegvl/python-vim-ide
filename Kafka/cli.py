@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+"""
+Чтение из одной Kafka (простой CLI, без compare-конфига).
+
+Примеры:
+  python cli.py --cluster A --topic T --key UUID --from-end 50000
+  python cli.py --cluster A --topic T --offset 175440 --meta
+"""
 from __future__ import annotations
 
 import argparse
@@ -17,11 +24,19 @@ def main() -> int:
     p.add_argument("--from-end", type=int, default=None)
     p.add_argument("--partition", type=int, default=0)
     p.add_argument("--key", default=None)
+    p.add_argument(
+        "--key-contains",
+        action="store_true",
+        help="Искать вхождение --key в Kafka key (не точное равенство)",
+    )
     p.add_argument("--field", default="task_id")
     p.add_argument("--max-messages", type=int, default=500_000)
     p.add_argument("--meta", action="store_true")
     p.add_argument("--raw", action="store_true")
     args = p.parse_args()
+
+    if args.key is None and args.offset is None:
+        raise SystemExit("Укажите --key и/или --offset")
 
     cluster = CLUSTERS[args.cluster]
     # bootstrap берётся из cluster["bootstrap"] внутри read_from_cluster → prepare_ssl_files/build_ssl_conf
@@ -34,6 +49,7 @@ def main() -> int:
         partition=args.partition,
         key=args.key,
         field=args.field,
+        key_contains=args.key_contains,
         max_messages=args.max_messages,
         with_meta=args.meta or True,
     )
