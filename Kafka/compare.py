@@ -94,14 +94,8 @@ def unwrap_payload(obj: Any, mode: str = "auto") -> tuple[Any, str | None]:
             raise SystemExit("payload_field=before, но before отсутствует или не object")
         return got, "before"
 
-    # auto: типичный Envelope (after/before + op/source)
-    looks_envelope = (
-        ("after" in obj or "before" in obj)
-        and ("op" in obj or "source" in obj or "ts_ms" in obj or "transaction" in obj)
-    )
-    if not looks_envelope and "after" not in obj:
-        return obj, None
-
+    # auto: если after — object, сравниваем его (типичный Debezium Envelope).
+    # Не требуем op/source: иначе after.* остаётся в отчёте как отдельные поля.
     after = take("after")
     if after is not None:
         return after, "after"
