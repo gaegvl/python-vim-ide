@@ -277,6 +277,8 @@ def unwrap_payload(obj: Any, mode: str = "auto") -> Tuple[Any, Optional[str]]:
       after — всегда after (ошибка если нет)
       before — всегда before
       full  — без разворачивания
+
+    after/before часто string(JSON) в упрощённых схемах каталога — парсим.
     """
     obj = _maybe_json(obj)
     if not isinstance(obj, dict):
@@ -289,8 +291,24 @@ def unwrap_payload(obj: Any, mode: str = "auto") -> Tuple[Any, Optional[str]]:
     def take(field: str) -> Optional[Any]:
         if field not in obj:
             return None
-        val = _maybe_json(obj.get(field))
-        return val if isinstance(val, dict) else None
+        raw = obj.get(field)
+        if raw is None:
+            return None
+        val = _maybe_json(raw)
+        # двойной JSON: "{\"a\":1}" → dict
+        if isinstance(val, str):
+            val = _maybe_json(val)
+        if isinstance(val, dict):
+            return val
+        # bytes → utf-8 JSON
+        if isinstance(val, (bytes, bytearray)):
+            try:
+                val = _maybe_json(val.decode("utf-8"))
+            except UnicodeDecodeError:
+                return None
+            if isinstance(val, dict):
+                return val
+        return None
 
     if mode == "after":
         got = take("after")
@@ -303,14 +321,11 @@ def unwrap_payload(obj: Any, mode: str = "auto") -> Tuple[Any, Optional[str]]:
             raise SystemExit("payload_field=before, но before отсутствует или не object")
         return got, "before"
 
-    # auto: бизнес-payload из типичных обёрток
-    for wrap in ("after", "Value", "value", "payload", "data"):
+    # auto: бизнес-payload из типичных обёрток (порядок важен)
+    for wrap in ("after", "Value", "value", "payload", "data", "before"):
         got = take(wrap)
         if got is not None:
             return got, wrap
-    before = take("before")
-    if before is not None:
-        return before, "before"
     return obj, None
 
 
@@ -355,6 +370,15 @@ def compare_sources(
             present[name] = False
             payload_meta[name] = "нет строки"
             continue
+        # Avro decode fail → иначе столб пустой (ключи _* отфильтровываются)
+        if isinstance(raw, dict) and raw.get("_binary") and raw.get("_error"):
+            flats[name] = {
+                "ошибка_decode": raw.get("_error"),
+                "schema_id_в_сообщении": raw.get("_schema_id"),
+            }
+            present[name] = True
+            payload_meta[name] = "ошибка decode: {0}".format(raw.get("_error"))
+            continue
         present[name] = True
         if name in unwrap_set:
             unwrapped, frm = unwrap_payload(raw, payload_field)
@@ -367,6 +391,15 @@ def compare_sources(
         flats[name] = {
             k: v for k, v in flatten(unwrapped).items() if not is_meta(k)
         }
+        if not flats[name] and isinstance(unwrapped, dict):
+            flats[name] = {
+                "ошибка_decode": "пустой payload после unwrap ({0})".format(
+                    payload_meta[name]
+                )
+            }
+            payload_meta[name] = "{0} (пусто после unwrap)".format(
+                payload_meta[name]
+            )
 
     all_keys = sorted(set().union(*[set(f.keys()) for f in flats.values()]))
     same_values = []  # type: List[str]

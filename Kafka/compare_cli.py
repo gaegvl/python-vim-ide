@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from compare import compare_sources
-from reader import read_from_cluster
+from reader import read_from_cluster, try_parse
 from report import write_reports
 from schema_source import resolve_schema
 
@@ -62,27 +62,30 @@ def main() -> int:
     output = cfg.get("output") or "compare_report.html"
     global_oracle = cfg.get("oracle") or {}
 
-    schema_cache = {}  # type: Dict[Tuple[str, str], object]
+    schema_cache = {}  # type: Dict[Tuple[Any, ...], object]
     oracle_conn = None
 
-    def schema_for(cluster: dict, topic: str):
-        # schema_key всегда = topic пары (left_topic / right_topic), не из кластера
+    def schema_for(cluster: dict, topic: str, schema_id: Optional[int] = None):
+        # schema_key всегда = topic пары; schema_id — из Confluent-заголовка сообщения
         cache_key = (
             cluster["name"],
             topic,
             cluster.get("schema_catalog"),
             cluster.get("schema_topic"),
+            schema_id,
         )
         if cache_key not in schema_cache:
             print(
-                "# схема {0} / topic={1} (schema_key=topic)".format(
-                    cluster["name"], topic
+                "# схема {0} / topic={1} schema_id={2}".format(
+                    cluster["name"], topic, schema_id
                 ),
                 file=sys.stderr,
             )
             c = dict(cluster)
             c["schema_key"] = topic
-            schema_cache[cache_key] = resolve_schema(c, topic)
+            schema_cache[cache_key] = resolve_schema(
+                c, topic, schema_id=schema_id
+            )
         return schema_cache[cache_key]
 
     def ensure_oracle():
@@ -149,9 +152,100 @@ def main() -> int:
             sch_l = schema_for(left, left_topic)
             sch_r = schema_for(right, right_topic)
 
-            msg_a = read_from_cluster(
-                left,
-                topic=left_topic,
+            def read_and_fix_schema(cluster, topic, sch, **kwargs):
+                """
+                Читаем сообщение, затем при наличии schema_catalog
+                передекодируем строго по schema_id из Confluent-заголовка.
+                Иначе subject-match часто даёт другую версию → пустой 610_5.
+                """
+                msg = read_from_cluster(
+                    cluster, topic=topic, avro_schema=sch, **kwargs
+                )
+                sid = msg.get("schema_id")
+                val = msg.get("value")
+                if sid is None and isinstance(val, dict):
+                    sid = val.get("_schema_id")
+                catalog = cluster.get("schema_catalog")
+                raw = msg.get("raw_value")
+
+                def apply_schema(sch2, reason):
+                    if raw is None:
+                        return msg
+                    print(
+                        "# [{0}] decode with schema_id={1} ({2})".format(
+                            cluster["name"], sid, reason
+                        ),
+                        file=sys.stderr,
+                    )
+                    data2 = try_parse(raw, avro_schema=sch2)
+                    out = dict(msg)
+                    out["value"] = data2
+                    out["schema_id"] = sid
+                    if isinstance(data2, dict) and data2.get("_error"):
+                        out["decode_error"] = data2.get("_error")
+                        print(
+                            "# [{0}] decode still failing: {1}".format(
+                                cluster["name"], data2.get("_error")
+                            ),
+                            file=sys.stderr,
+                        )
+                    else:
+                        out["decode_error"] = None
+                        if isinstance(data2, dict):
+                            print(
+                                "# [{0}] decode ok, keys={1}".format(
+                                    cluster["name"],
+                                    list(data2.keys())[:12],
+                                ),
+                                file=sys.stderr,
+                            )
+                    return out
+
+                decode_failed = (
+                    isinstance(val, dict)
+                    and val.get("_binary")
+                    and val.get("_error")
+                )
+
+                if catalog and sid is not None:
+                    try:
+                        sch2 = schema_for(cluster, topic, schema_id=int(sid))
+                    except SystemExit as e:
+                        print(
+                            "# [{0}] нет схемы id={1} в catalog: {2}".format(
+                                cluster["name"], sid, e
+                            ),
+                            file=sys.stderr,
+                        )
+                        if decode_failed:
+                            # оставим ошибку decode + подсказку
+                            bad = dict(val)
+                            bad["_error"] = (
+                                "{0}; в schema_catalog нет id={1} "
+                                "(проверьте экспорт Registry)".format(
+                                    val.get("_error"), sid
+                                )
+                            )
+                            msg = dict(msg)
+                            msg["value"] = bad
+                            msg["decode_error"] = bad["_error"]
+                        return msg
+                    except Exception as e:
+                        print(
+                            "# [{0}] schema by id failed: {1}".format(
+                                cluster["name"], e
+                            ),
+                            file=sys.stderr,
+                        )
+                        return msg
+                    return apply_schema(
+                        sch2,
+                        "retry" if decode_failed else "prefer wire id",
+                    )
+
+                return msg
+
+            read_kw_l = dict(
                 offset=pair.get("left_offset"),
                 from_end=left_from_end,
                 partition=int(pair.get("left_partition") or 0),
@@ -159,11 +253,8 @@ def main() -> int:
                 field=field,
                 key_contains=bool(pair_key_contains),
                 max_messages=max_messages,
-                avro_schema=sch_l,
             )
-            msg_b = read_from_cluster(
-                right,
-                topic=right_topic,
+            read_kw_r = dict(
                 offset=pair.get("right_offset"),
                 from_end=right_from_end,
                 partition=int(pair.get("right_partition") or 0),
@@ -171,8 +262,9 @@ def main() -> int:
                 field=field,
                 key_contains=bool(pair_key_contains),
                 max_messages=max_messages,
-                avro_schema=sch_r,
             )
+            msg_a = read_and_fix_schema(left, left_topic, sch_l, **read_kw_l)
+            msg_b = read_and_fix_schema(right, right_topic, sch_r, **read_kw_r)
 
             sources = {
                 left["name"]: msg_a["value"],
@@ -186,6 +278,12 @@ def main() -> int:
                     "partition": msg_a["partition"],
                     "schema_id": msg_a.get("schema_id"),
                     "key": msg_a.get("key"),
+                    "decode_error": msg_a.get("decode_error"),
+                    "payload": (
+                        list(msg_a["value"].keys())[:20]
+                        if isinstance(msg_a.get("value"), dict)
+                        else type(msg_a.get("value")).__name__
+                    ),
                 },
                 right["name"]: {
                     "topic": right_topic,
@@ -193,6 +291,12 @@ def main() -> int:
                     "partition": msg_b["partition"],
                     "schema_id": msg_b.get("schema_id"),
                     "key": msg_b.get("key"),
+                    "decode_error": msg_b.get("decode_error"),
+                    "payload": (
+                        list(msg_b["value"].keys())[:20]
+                        if isinstance(msg_b.get("value"), dict)
+                        else type(msg_b.get("value")).__name__
+                    ),
                 },
             }  # type: Dict[str, Any]
             oracle_meta = {}  # type: Dict[str, Any]

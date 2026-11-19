@@ -181,12 +181,25 @@ def _render_pair(idx: int, pair: dict) -> str:
     for c in cols:
         meta = off.get(c) or {}
         if meta.get("offset") is not None:
+            extra = ""
+            if meta.get("decode_error"):
+                extra = " <span class='status-diff'>decode: {0}</span>".format(
+                    _esc(meta.get("decode_error"))
+                )
+            elif meta.get("payload") is not None:
+                extra = " keys={0}".format(_esc(meta.get("payload")))
+            payload_info = ""
+            pl = (cmp_.get("payload") or {}).get(c)
+            if pl:
+                payload_info = ", unwrap={0}".format(_esc(pl))
             src_lines.append(
-                "<b>{0}:</b> <code>{1}</code> offset={2}, schema_id={3}".format(
+                "<b>{0}:</b> <code>{1}</code> offset={2}, schema_id={3}{4}{5}".format(
                     _esc(c),
                     _esc(meta.get("topic") or pair.get("левый_топик") if c == cols[0] else pair.get("правый_топик")),
                     _esc(meta.get("offset")),
                     _esc(meta.get("schema_id")),
+                    payload_info,
+                    extra,
                 )
             )
         elif meta.get("fqn"):

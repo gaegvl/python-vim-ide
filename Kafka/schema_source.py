@@ -146,14 +146,30 @@ def _iter_catalog_entries(catalog: Any) -> List[Tuple[str, Any]]:
     return [(str(k), v) for k, v in catalog.items()]
 
 
-def _pick_catalog_entry(catalog: Any, wanted: str, topic: str) -> Any:
+def _pick_catalog_entry(
+    catalog: Any,
+    wanted: str,
+    topic: str,
+    schema_id: Optional[int] = None,
+) -> Any:
     """
-    Ищем запись по schema_key/topic:
-    — ключ каталога
-    — вхождение в subject / schemaName
+    Ищем запись:
+    1) по Confluent schema id (если задан)
+    2) по schema_key/topic (ключ / subject)
     """
     entries = _iter_catalog_entries(catalog)
     if not entries:
+        return None
+
+    if schema_id is not None:
+        for _label, entry in entries:
+            if isinstance(entry, dict) and entry.get("id") is not None:
+                try:
+                    if int(entry.get("id")) == int(schema_id):
+                        return entry
+                except (TypeError, ValueError):
+                    pass
+        # id задан явно — не откатываемся на subject (иначе снова чужая схема)
         return None
 
     keys = []
@@ -161,20 +177,20 @@ def _pick_catalog_entry(catalog: Any, wanted: str, topic: str) -> Any:
         if k and k not in keys:
             keys.append(k)
 
-    # 1) точное совпадение ключа
+    # точное совпадение ключа
     for want in keys:
         for label, entry in entries:
             if label == want:
                 return entry
 
-    # 2) вхождение wanted в subject / schemaName / label
+    # вхождение wanted в subject / schemaName / label
     for want in keys:
         for label, entry in entries:
             subj = _catalog_entry_name(entry) or label
             if _wanted_in_subject(want, subj) or _wanted_in_subject(want, label):
                 return entry
 
-    # 3) один документ в файле — берём его (обратная совместимость)
+    # один документ в файле — берём его (обратная совместимость)
     if len(entries) == 1 and _is_registry_doc(entries[0][1]):
         return entries[0][1]
 
@@ -185,35 +201,34 @@ def load_schema_from_catalog_file(
     catalog_path: str,
     topic: str,
     schema_key: Optional[str] = None,
+    schema_id: Optional[int] = None,
 ):
     """
     Вспомогательный путь: JSON на диске.
 
-    Форматы:
-    1) каталог { "topic.name": { ... }, ... }
-    2) один документ Registry: { "subject", "schema": "{...}" }
-    3) несколько схем: [ {...}, {...} ] или { "schemas": [ {...}, ... ] }
-
-    Поиск: schema_key (если задан) или имя топика — вхождение в subject.
+    Поиск: schema_id (предпочтительно) → schema_key/topic в subject.
     """
     with open(catalog_path, "r", encoding="utf-8") as f:
         catalog = json.load(f)
 
     wanted = (schema_key or topic or "").strip()
-    entry = _pick_catalog_entry(catalog, wanted, topic)
+    entry = _pick_catalog_entry(catalog, wanted, topic, schema_id=schema_id)
 
     if entry is None:
+        hint = "id={0}".format(schema_id) if schema_id is not None else "topic≈{0!r}".format(wanted)
         raise SystemExit(
-            f"В каталоге {catalog_path} нет схемы для "
-            f"schema_key/topic≈{wanted!r}"
+            "В каталоге {0} нет схемы для {1}".format(catalog_path, hint)
         )
 
     raw = extract_schema_from_value(entry)
     schema = _parse_schema_obj(raw)
     subj = _catalog_entry_name(entry) or wanted
+    eid = entry.get("id") if isinstance(entry, dict) else None
     print(
-        f"# schema from file {catalog_path} subject/key={subj!r} "
-        f"(wanted={wanted!r}) for topic={topic}",
+        "# schema from file {0} subject={1!r} id={2} "
+        "(wanted={3!r}, schema_id={4}) topic={5}".format(
+            catalog_path, subj, eid, wanted, schema_id, topic
+        ),
         file=sys.stderr,
     )
     return schema
@@ -319,24 +334,30 @@ def load_schema_from_kafka_topic(cluster: dict, data_topic: str):
     return schema
 
 
-def resolve_schema(cluster: dict, data_topic: str):
+def resolve_schema(
+    cluster: dict,
+    data_topic: str,
+    schema_id: Optional[int] = None,
+):
     """
     Приоритет:
-    1) schema_topic в кластере (основной)
-    2) schema_catalog — путь к JSON (вспомогательный)
+    1) schema_topic в кластере (основной) — по topic/schema_key
+    2) schema_catalog — файл; если передан schema_id, ищем по id
 
-    schema_key — что искать в Kafka-key / subject файла;
-    если не задан, берётся имя топика данных.
+    schema_key — topic пары (left/right_topic).
     """
     schema_key = cluster.get("schema_key") or data_topic
-    if cluster.get("schema_topic"):
+    if cluster.get("schema_topic") and schema_id is None:
         return load_schema_from_kafka_topic(cluster, data_topic)
     if cluster.get("schema_catalog"):
         return load_schema_from_catalog_file(
             cluster["schema_catalog"],
             data_topic,
             schema_key=schema_key,
+            schema_id=schema_id,
         )
+    if cluster.get("schema_topic"):
+        return load_schema_from_kafka_topic(cluster, data_topic)
     raise SystemExit(
         f"[{cluster.get('name')}] укажите schema_topic (основной) "
         f"или schema_catalog (файл, запасной)"

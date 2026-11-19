@@ -192,10 +192,20 @@ def read_from_cluster(
             elif offset is not None and msg.offset != offset:
                 continue
 
-            data = try_parse(raw_value, avro_schema=avro_schema)
             schema_id = None
             if isinstance(raw_value, (bytes, bytearray)) and len(raw_value) >= 5 and raw_value[0] == 0:
                 schema_id = int.from_bytes(raw_value[1:5], "big")
+
+            data = try_parse(raw_value, avro_schema=avro_schema)
+            decode_error = None
+            if isinstance(data, dict) and data.get("_binary") and data.get("_error"):
+                decode_error = data.get("_error")
+                print(
+                    "# [{0}] decode error schema_id={1}: {2}".format(
+                        cluster["name"], schema_id, decode_error
+                    ),
+                    file=sys.stderr,
+                )
 
             if with_meta:
                 return {
@@ -205,7 +215,11 @@ def read_from_cluster(
                     "offset": msg.offset,
                     "key": key_text(msg.key) or msg.key,
                     "value": data,
-                    "schema_id": schema_id,
+                    "raw_value": raw_value,
+                    "schema_id": schema_id if schema_id is not None else (
+                        data.get("_schema_id") if isinstance(data, dict) else None
+                    ),
+                    "decode_error": decode_error,
                 }
             return data
     finally:
