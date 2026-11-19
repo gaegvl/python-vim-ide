@@ -226,6 +226,37 @@ def compare_messages(
     both_empty = []
     same_values = []
     value_diff = []
+    all_fields: list[dict[str, Any]] = []
+
+    def row(
+        field: str,
+        status: str,
+        va: Any = None,
+        vb: Any = None,
+        comment: str = "",
+    ) -> dict[str, Any]:
+        return {
+            "поле": field,
+            "статус": status,
+            name_a: va,
+            name_b: vb,
+            f"{name_a}_текст": _fmt(va),
+            f"{name_b}_текст": _fmt(vb),
+            f"{name_a}_нормализовано": normalize_value(va),
+            f"{name_b}_нормализовано": normalize_value(vb),
+            "комментарий": comment,
+        }
+
+    for k in only_a:
+        va = fa[k]
+        all_fields.append(
+            row(k, "только_слева", va, None, f"только в {name_a}")
+        )
+    for k in only_b:
+        vb = fb[k]
+        all_fields.append(
+            row(k, "только_справа", None, vb, f"только в {name_b}")
+        )
 
     for k in both:
         va, vb = fa[k], fb[k]
@@ -234,44 +265,27 @@ def compare_messages(
             both_filled.append(k)
             if values_equal(va, vb):
                 same_values.append(k)
+                all_fields.append(row(k, "совпадает", va, vb))
             else:
-                value_diff.append(
-                    {
-                        "поле": k,
-                        name_a: va,
-                        name_b: vb,
-                        f"{name_a}_текст": _fmt(va),
-                        f"{name_b}_текст": _fmt(vb),
-                        f"{name_a}_нормализовано": normalize_value(va),
-                        f"{name_b}_нормализовано": normalize_value(vb),
-                    }
-                )
+                item = row(k, "различие", va, vb)
+                value_diff.append(item)
+                all_fields.append(item)
         elif not ea and eb:
             only_a_filled.append(k)
-            value_diff.append(
-                {
-                    "поле": k,
-                    name_a: va,
-                    name_b: vb,
-                    f"{name_a}_текст": _fmt(va),
-                    f"{name_b}_текст": _fmt(vb),
-                    "комментарий": f"заполнено только в {name_a}",
-                }
-            )
+            item = row(k, "различие", va, vb, f"заполнено только в {name_a}")
+            value_diff.append(item)
+            all_fields.append(item)
         elif ea and not eb:
             only_b_filled.append(k)
-            value_diff.append(
-                {
-                    "поле": k,
-                    name_a: va,
-                    name_b: vb,
-                    f"{name_a}_текст": _fmt(va),
-                    f"{name_b}_текст": _fmt(vb),
-                    "комментарий": f"заполнено только в {name_b}",
-                }
-            )
+            item = row(k, "различие", va, vb, f"заполнено только в {name_b}")
+            value_diff.append(item)
+            all_fields.append(item)
         else:
             both_empty.append(k)
+            all_fields.append(row(k, "совпадает", va, vb, "оба пусты"))
+
+    # стабильный порядок: имя поля
+    all_fields.sort(key=lambda r: str(r.get("поле") or ""))
 
     ok = len(only_a) == 0 and len(only_b) == 0 and len(value_diff) == 0
 
@@ -292,6 +306,7 @@ def compare_messages(
             "заполнено_только_" + name_a: len(only_a_filled),
             "заполнено_только_" + name_b: len(only_b_filled),
             "оба_пусты": len(both_empty),
+            "всего_полей": len(all_fields),
         },
         "поля_только_в_" + name_a: only_a,
         "поля_только_в_" + name_b: only_b,
@@ -303,5 +318,6 @@ def compare_messages(
         },
         "одинаковые_значения": same_values,
         "различия_значений": value_diff,
+        "все_поля": all_fields,
         "имена": {"левый": name_a, "правый": name_b},
     }
