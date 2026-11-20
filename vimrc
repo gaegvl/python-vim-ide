@@ -69,15 +69,18 @@ syntax enable
 filetype plugin indent on
 
 " --- История / бэкапы -------------------------------------------------------
+" swap (.swp) выключен: не спрашивает recover при повторном открытии.
+" Сохраняйте сами (Space w). undofile оставлен — u работает после переоткрытия.
 let s:state = expand('~/.local/share/pyide')
 if !isdirectory(s:state) | call mkdir(s:state, 'p') | endif
 let &undodir = s:state . '/undo'
 let &backupdir = s:state . '/backup'
-let &directory = s:state . '/swap'
-for s:d in [&undodir, &backupdir, &directory]
+for s:d in [&undodir, &backupdir]
   if !isdirectory(s:d) | call mkdir(s:d, 'p') | endif
 endfor
-set undofile backup
+set noswapfile
+set undofile
+set nobackup nowritebackup
 
 " --- Цветовая схема (встроенная, без интернета) -----------------------------
 try
