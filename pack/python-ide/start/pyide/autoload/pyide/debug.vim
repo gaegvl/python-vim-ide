@@ -1,8 +1,17 @@
 " Отладка: pdb (всегда) или debugpy если установлен
 function! pyide#debug#start() abort
   update
+  call pyide#venv#auto()
   let l:py = pyide#project#python()
+  if l:py !~# '[/\\]'
+    let l:full = exepath(l:py)
+    if !empty(l:full) | let l:py = l:full | endif
+  endif
   let l:file = expand('%:p')
+  if empty(l:file) || !filereadable(l:file)
+    echohl ErrorMsg | echom 'PyIdeDebug: сохраните файл на диск' | echohl None
+    return
+  endif
   call pyide#breakpoint#refresh()
 
   let l:has_bp = 0
@@ -23,22 +32,25 @@ function! pyide#debug#start() abort
     endif
   endif
 
-  " debugpy — если модуль есть (для внешней IDE/attach); иначе классический pdb
-  let l:cmd = shellescape(l:py) . ' -m pdb ' . shellescape(l:file)
+  let l:argv = [l:py, '-m', 'pdb', l:file]
   call system(shellescape(l:py) . ' -c ' . shellescape('import debugpy'))
   if !v:shell_error && get(g:, 'pyide_use_debugpy', 0)
     let l:port = get(g:, 'pyide_debugpy_port', 5678)
-    let l:cmd = shellescape(l:py) . ' -m debugpy --listen ' . l:port
-          \ . ' --wait-for-client ' . shellescape(l:file)
+    let l:argv = [l:py, '-m', 'debugpy', '--listen', string(l:port),
+          \ '--wait-for-client', l:file]
     echo 'debugpy listen :' . l:port
   endif
 
-  if has('nvim')
+  if exists('*term_start')
+    call term_start(l:argv, {'term_name': 'PyDebug', 'term_rows': 15})
+    wincmd J
+  elseif has('nvim')
     botright split | resize 15
-    execute 'terminal ' . l:cmd
+    execute 'terminal ' . join(map(copy(l:argv), {_, v -> fnameescape(v)}), ' ')
   elseif has('terminal')
-    execute 'botright terminal ++rows=15 ' . l:cmd
+    let l:cmd = join(map(copy(l:argv), {_, v -> shellescape(v)}), ' ')
+    execute 'botright terminal ++rows=15 ++shell ' . l:cmd
   else
-    execute '!' . l:cmd
+    execute '!' . join(map(copy(l:argv), {_, v -> shellescape(v)}), ' ')
   endif
 endfunction
