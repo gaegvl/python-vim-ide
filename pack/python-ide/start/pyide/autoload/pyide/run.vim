@@ -12,6 +12,7 @@ function! pyide#run#file(...) abort
   if a:0 && !empty(a:1)
     let l:argv += split(a:1)
   endif
+  echom 'PyIdeRun: ' . join(l:argv, ' ')
   call s:term_argv(l:argv, 'PyRun')
 endfunction
 
@@ -46,16 +47,21 @@ function! s:python() abort
   if empty(l:py)
     let l:py = 'python3'
   endif
-  " :terminal не через shell — нужен реальный путь, не 'python3' без PATH
-  if l:py !~# '[/\\]' 
+  if l:py !~# '[/\\]'
     let l:full = exepath(l:py)
     if !empty(l:full)
       return l:full
     endif
+    " типичные пути Astra/Linux
+    for l:cand in ['/usr/bin/python3', '/bin/python3', '/usr/local/bin/python3']
+      if executable(l:cand)
+        return l:cand
+      endif
+    endfor
   endif
   if !executable(l:py)
     echohl ErrorMsg
-    echom 'PyIDE: Python не найден: ' . l:py . '  (см. :PyIdeHealth, PATH)'
+    echom 'PyIDE: Python не найден: ' . l:py . '  (:PyIdeHealth, which python3)'
     echohl None
   endif
   return l:py
@@ -67,35 +73,48 @@ function! s:module_exists(name) abort
   return !v:shell_error
 endfunction
 
+function! s:close_run_win() abort
+  if &buftype ==# 'terminal'
+    if mode() =~# 't'
+      call feedkeys("\<C-\>\<C-n>", 'n')
+    endif
+    close
+  else
+    close
+  endif
+endfunction
+
+function! s:map_close() abort
+  " q закрывает окно вывода F5 (из normal-режима терминала)
+  nnoremap <buffer><silent> q :call <SID>close_run_win()<CR>
+  nnoremap <buffer><silent> <Esc><Esc> :call <SID>close_run_win()<CR>
+endfunction
+
 function! s:term_argv(argv, title) abort
-  " Важно: НЕ shellescape для :terminal — иначе execve('''python3''') → «нет файла»
+  " Через shell (++shell): PATH и кавычки работают как в обычном терминале.
+  " Без ++shell Vim делает execve первого аргумента — 'python3' в кавычках ломается.
+  let l:cmd = join(map(copy(a:argv), {_, v -> shellescape(v)}), ' ')
+
   if has('nvim')
     botright split
     resize 15
-    execute 'terminal ' . join(map(copy(a:argv), {_, v -> fnameescape(v)}), ' ')
+    call termopen(l:cmd, {'cwd': pyide#project#root()})
     execute 'file ' . a:title
-    return
-  endif
-
-  if exists('*term_start')
-    call term_start(a:argv, {
-          \ 'term_name': a:title,
-          \ 'term_rows': 15,
-          \ 'cwd': pyide#project#root(),
-          \ })
-    wincmd J
+    call s:map_close()
     return
   endif
 
   if exists(':terminal') && has('terminal')
-    " ++shell — через shell, кавычки уместны
-    let l:cmd = join(map(copy(a:argv), {_, v -> shellescape(v)}), ' ')
-    execute 'botright terminal ++rows=15 ++shell ' . l:cmd
+    execute 'botright terminal ++rows=15 ++shell ++norestore ' . l:cmd
+    try
+      execute 'file ' . a:title
+    catch
+    endtry
+    call s:map_close()
     return
   endif
 
-  let l:cmd = join(map(copy(a:argv), {_, v -> shellescape(v)}), ' ')
+  " Fallback без +terminal
   let l:out = systemlist(l:cmd)
-  call setqflist([], 'r', {'lines': l:out, 'title': a:title})
-  copen
+  echo join(l:out, "\n")
 endfunction

@@ -41,16 +41,14 @@ function! pyide#debug#start() abort
     echo 'debugpy listen :' . l:port
   endif
 
-  if exists('*term_start')
-    call term_start(l:argv, {'term_name': 'PyDebug', 'term_rows': 15})
-    wincmd J
-  elseif has('nvim')
+  let l:cmd = join(map(copy(l:argv), {_, v -> shellescape(v)}), ' ')
+  if has('nvim')
     botright split | resize 15
-    execute 'terminal ' . join(map(copy(l:argv), {_, v -> fnameescape(v)}), ' ')
+    call termopen(l:cmd)
   elseif has('terminal')
-    let l:cmd = join(map(copy(l:argv), {_, v -> shellescape(v)}), ' ')
-    execute 'botright terminal ++rows=15 ++shell ' . l:cmd
+    execute 'botright terminal ++rows=15 ++shell ++norestore ' . l:cmd
   else
-    execute '!' . join(map(copy(l:argv), {_, v -> shellescape(v)}), ' ')
+    execute '!' . l:cmd
   endif
 endfunction
+
