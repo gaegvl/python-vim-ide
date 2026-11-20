@@ -26,6 +26,33 @@
 | `SPC rd` / `F9` | debug (pdb) |
 | закрыть окно вывода F5 | `Ctrl+\` `Ctrl+n` → `q` (или `:q` / `Ctrl+w` `c` / `SPC x`) |
 
+## Сохранение
+
+| Клавиша | Действие |
+|---|---|
+| `SPC w` | сохранить файл (делайте до F5 / format) |
+| `:w` | то же через командную строку |
+
+## JSON
+
+| Клавиша | Действие |
+|---|---|
+| открыть `.json` | можно одной длинной строкой |
+| `SPC w` | сохранить |
+| `F8` / `SPC rf` | развернуть / форматировать (jq или `python -m json.tool`) |
+
+Нужен валидный JSON; иначе ошибка парсинга.
+
+## Форматирование и ruff (Python)
+
+| Клавиша | Действие |
+|---|---|
+| `F8` / `SPC rf` | format (`ruff format`) |
+| `F7` / `SPC rl` | проверка ruff (lint) → замечания |
+| `]d` / `[d` | следующее / предыдущее замечание |
+| `SPC ri` | organize imports (ruff / isort) |
+| `:PyIdeHealth` | jedi + ruff должны быть OK |
+
 ## IDE
 
 | Клавиша | Действие |
@@ -40,20 +67,16 @@
 | `SPC fr` | недавние |
 | `SPC o` | outline |
 | `SPC td` | TODO/FIXME |
-| `SPC rl` / F7 | lint |
-| `SPC rf` / F8 | format (Python / JSON); также авто при `:w` |
 | `SPC b` | toggle breakpoint |
 | `SPC bc` | clear breakpoints |
 | `SPC rv` | REPL |
-| `SPC ri` | organize imports |
 | `gd` `gr` `K` | def / refs / doc |
-| `]d` `[d` | next/prev diagnostic |
 | `SPC rn` | rename |
 | `SPC /` | comment |
 | `SPC gs` `gb` | git status / blame |
 | `SPC ss` `sl` | session save / load |
 | `SPC ct` | ctags |
-| `SPC w` `q` `x` | write / quit / close buffer |
+| `SPC q` `x` | quit / close buffer |
 
 Сниппеты (Insert): `def` `class` `if` `for` `while` `try` `with` `main` `pdb` `log` `dataclass` `prop` `test` `from` `imp` `doc` `init` `super` + **Tab**
 

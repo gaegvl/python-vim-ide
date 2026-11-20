@@ -29,13 +29,27 @@ function! pyide#whichkey#show() abort
         \ '  Закрыть окно вывода F5/терминала:',
         \ '    Ctrl-\ Ctrl-n → q   (или :q / Ctrl-w c / Space x)',
         \ '',
-        \ 'Файлы',
+        \ 'Файлы / сохранение',
+        \ '  w / Space w   сохранить файл (делайте до F5 и format)',
+        \ '  :w            то же через командную строку',
         \ '  ff    найти файл             fb    буферы',
         \ '  fg    grep                   fr    недавние',
-        \ '  w     сохранить              q     выход   x  закрыть буфер',
+        \ '  q     выход                  x     закрыть буфер',
         \ '',
-        \ 'Код Python',
-        \ '  rl / F7     lint             rf / F8  format py/json',
+        \ 'JSON',
+        \ '  Откройте файл .json (можно одной длинной строкой)',
+        \ '  Space w       сохранить',
+        \ '  F8 / Space rf  развернуть/форматировать JSON (jq или python)',
+        \ '  Нужен валидный JSON; иначе будет ошибка парсинга',
+        \ '',
+        \ 'Форматирование и ruff (Python)',
+        \ '  F8 / Space rf  format (ruff format / black)',
+        \ '  F7 / Space rl  проверка ruff (lint) → список замечаний',
+        \ '  ]d / [d       следующее / предыдущее замечание',
+        \ '  Space ri      organize imports (ruff/isort)',
+        \ '  :PyIdeHealth  jedi/ruff должны быть OK',
+        \ '',
+        \ 'Код Python (ещё)',
         \ '  ri    organize imports       o     outline символов',
         \ '  td    TODO/FIXME             b     toggle breakpoint',
         \ '  bc    clear breakpoints',
@@ -54,7 +68,7 @@ function! pyide#whichkey#show() abort
         \ 'Сниппеты (Insert + Tab): def class if for try with main pdb test ...',
         \ 'Команда :PyIdeHealth — проверка окружения / tools',
         \ ]
-  botright 28new
+  botright 32new
   silent file [PyIDE-Help]
   setlocal buftype=nofile bufhidden=wipe noswapfile nobuflisted
   setlocal nonumber norelativenumber
