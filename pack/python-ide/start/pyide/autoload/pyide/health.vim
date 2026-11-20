@@ -29,10 +29,17 @@ function! pyide#health#check() abort
   echo '  Space+e map: ' . (empty(maparg('<Space>e', 'n')) ? 'НЕТ (vimrc не загружен?)' : 'OK')
   echo '  :PyIdeHelp   — шпаргалка; также F1'
   echo ''
+  echo '--- Как включить «нет» ---'
+  echo '  Python tools (ruff/black/…):'
+  echo '    python3 ' . get(g:, 'pyide_root', '.') . '/bin/install_tools.py'
+  echo '  Система (Astra/apt, офлайн .deb при необходимости):'
+  echo '    sudo apt-get install vim-nox git universal-ctags ripgrep'
+  echo '  black/flake8 — опционально; достаточно ruff из install_tools.py'
+  echo ''
   if !s:py_mod('jedi')
-    echo 'Установите tools:  python3 ' . get(g:, 'pyide_root', '.') . '/bin/install_tools.py'
+    echo 'Сначала поставьте tools (jedi). Потом :PyIdeHealth снова.'
   else
-    echo 'IDE ready. F1 или :PyIdeHelp — шпаргалка'
+    echo 'IDE из python-vim-ide загружен. F1 или :PyIdeHelp — шпаргалка'
   endif
 endfunction
 
