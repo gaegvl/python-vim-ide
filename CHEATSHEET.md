@@ -24,6 +24,7 @@
 | `SPC rr` / `F5` | запустить открытый `.py` |
 | `SPC rt` / `F6` | тесты |
 | `SPC rd` / `F9` | debug (pdb) |
+| закрыть окно вывода F5 | `Esc` (или `Ctrl+\` `Ctrl+n`) → `:q` / `Ctrl+w` `c` / `SPC x` |
 
 ## IDE
 

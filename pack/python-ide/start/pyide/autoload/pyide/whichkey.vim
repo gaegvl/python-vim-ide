@@ -26,6 +26,8 @@ function! pyide#whichkey#show() abort
         \ '  rr / F5     запустить открытый .py',
         \ '  rt / F6     тесты                rv    REPL',
         \ '  rd / F9     debug (pdb)',
+        \ '  Закрыть окно вывода F5/терминала:',
+        \ '    Esc (или Ctrl-\ Ctrl-n) → :q  /  Ctrl-w c  /  Space x',
         \ '',
         \ 'Файлы',
         \ '  ff    найти файл             fb    буферы',
