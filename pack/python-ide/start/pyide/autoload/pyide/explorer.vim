@@ -24,13 +24,17 @@ function! pyide#explorer#open() abort
   call s:render(l:root)
   nnoremap <buffer><silent> <CR> :call <SID>enter()<CR>
   nnoremap <buffer><silent> o    :call <SID>enter()<CR>
-  " Мышь: клик по строке — открыть / раскрыть папку
-  nnoremap <buffer><silent> <LeftMouse> <LeftMouse>:call <SID>enter()<CR>
+  " Мышь только в дереве; LeftMouse+enter после edit уезжал в чужой буфер → E121
+  nnoremap <buffer><silent> <LeftRelease> :call <SID>enter()<CR>
   nnoremap <buffer><silent> <2-LeftMouse> :call <SID>enter()<CR>
   nnoremap <buffer><silent> q    :close<CR>
   nnoremap <buffer><silent> R    :call <SID>refresh()<CR>
   nnoremap <buffer><silent> -    :call <SID>up()<CR>
   nnoremap <buffer><silent> cd   :call <SID>cd_here()<CR>
+endfunction
+
+function! s:in_tree() abort
+  return bufname('%') ==# s:bufname && exists('b:pyide_lines')
 endfunction
 
 function! s:list_dir(path) abort
@@ -73,10 +77,17 @@ function! s:render_tree(path, depth) abort
 endfunction
 
 function! s:enter() abort
+  if !s:in_tree()
+    return
+  endif
+  let l:lines = b:pyide_lines
   let l:idx = line('.') - 1
-  if l:idx < 0 || l:idx >= len(b:pyide_lines) | return | endif
-  let l:item = b:pyide_lines[l:idx]
+  if l:idx < 0 || l:idx >= len(l:lines) | return | endif
+  let l:item = l:lines[l:idx]
   if l:item.dir
+    if !exists('b:pyide_expanded')
+      let b:pyide_expanded = {}
+    endif
     if has_key(b:pyide_expanded, l:item.path)
       call remove(b:pyide_expanded, l:item.path)
     else
@@ -86,25 +97,40 @@ function! s:enter() abort
     call s:render(b:pyide_root)
     call cursor(l:ln, 1)
   else
+    " открыть файл в окне кода, не теряя дерево
+    let l:path = l:item.path
     wincmd p
-    execute 'edit ' . fnameescape(l:item.path)
+    if bufname('%') ==# s:bufname
+      wincmd l
+    endif
+    execute 'edit ' . fnameescape(l:path)
   endif
 endfunction
 
 function! s:refresh() abort
+  if !s:in_tree() || !exists('b:pyide_root')
+    return
+  endif
   call s:render(b:pyide_root)
 endfunction
 
 function! s:up() abort
+  if !s:in_tree() || !exists('b:pyide_root')
+    return
+  endif
   let b:pyide_root = fnamemodify(b:pyide_root, ':h')
   let b:pyide_expanded = {}
   call s:render(b:pyide_root)
 endfunction
 
 function! s:cd_here() abort
+  if !s:in_tree()
+    return
+  endif
+  let l:lines = b:pyide_lines
   let l:idx = line('.') - 1
-  if l:idx < 0 || l:idx >= len(b:pyide_lines) | return | endif
-  let l:item = b:pyide_lines[l:idx]
+  if l:idx < 0 || l:idx >= len(l:lines) | return | endif
+  let l:item = l:lines[l:idx]
   let l:dir = l:item.dir ? l:item.path : fnamemodify(l:item.path, ':h')
   execute 'cd ' . fnameescape(l:dir)
   echom 'cd ' . l:dir
